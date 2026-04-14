@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createAuditLog } from "../../db/repositories/audit.js";
 
 export interface AuditEventInput {
   actorId?: string;
@@ -15,9 +15,11 @@ export interface AuditEventRecord extends AuditEventInput {
 }
 
 export async function writeAuditEvent(input: AuditEventInput): Promise<AuditEventRecord> {
+  const persisted = await createAuditLog(input);
+
   return {
-    id: randomUUID(),
-    createdAt: new Date().toISOString(),
+    id: persisted.id,
+    createdAt: persisted.createdAt,
     ...input,
   };
 }

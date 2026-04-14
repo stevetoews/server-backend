@@ -1,15 +1,24 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
+import {
+  confirmProviderMatch,
+  createServerDraft,
+  getServerById,
+  listServers,
+  mapSpinupwpServer,
+} from "../db/repositories/servers.js";
 import { createJsonResponse, createValidationErrorResponse, readJsonBody, type AppRoute } from "../lib/http.js";
 import { writeAuditEvent } from "../modules/audit/logger.js";
 import {
+  type OnboardingSnapshot,
   type ServerRecord,
   serverDraftSchema,
 } from "../modules/contracts/server.js";
 import { findProviderMatches } from "../modules/providers/matcher.js";
 import { DigitalOceanAdapter } from "../modules/providers/digitalocean.js";
 import { LinodeAdapter } from "../modules/providers/linode.js";
+import { SpinupwpAdapter } from "../modules/providers/spinupwp.js";
 import { evaluateActivationPolicy } from "../modules/policies/engine.js";
 import { discoverHostMetadata, testSshConnection } from "../modules/ssh/discovery.js";
 
@@ -18,17 +27,60 @@ const activateServerSchema = z.object({
   providerKind: z.enum(["linode", "digitalocean"]),
 });
 
-const mockServers: ServerRecord[] = [];
+const spinupwpMappingSchema = z.object({
+  spinupwpServerId: z.string().min(1),
+});
 
 export const serverRoutes: AppRoute[] = [
   {
     method: "GET",
     pattern: /^\/servers$/,
-    handler: async () =>
-      createJsonResponse(200, {
+    handler: async () => {
+      const servers = await listServers();
+
+      return createJsonResponse(200, {
         ok: true,
-        data: mockServers,
-      }),
+        data: servers,
+      });
+    },
+  },
+  {
+    method: "GET",
+    pattern: /^\/servers\/[^/]+$/,
+    handler: async (context) => {
+      const serverId = context.url.pathname.split("/")[2];
+
+      if (!serverId) {
+        return createJsonResponse(400, {
+          ok: false,
+          error: {
+            code: "INVALID_SERVER_ID",
+            message: "Server id is required in the request path",
+            requestId: context.requestId,
+          },
+        });
+      }
+
+      const server = await getServerById(serverId);
+
+      if (!server) {
+        return createJsonResponse(404, {
+          ok: false,
+          error: {
+            code: "SERVER_NOT_FOUND",
+            message: "Server record was not found",
+            requestId: context.requestId,
+          },
+        });
+      }
+
+      return createJsonResponse(200, {
+        ok: true,
+        data: {
+          server,
+        },
+      });
+    },
   },
   {
     method: "POST",
@@ -54,18 +106,21 @@ export const serverRoutes: AppRoute[] = [
         providers: [new LinodeAdapter(), new DigitalOceanAdapter()],
         ...(parsed.data.ipAddress ? { ipAddress: parsed.data.ipAddress } : {}),
       });
-
-      const now = new Date().toISOString();
-      const record: ServerRecord = {
-        id: randomUUID(),
-        createdAt: now,
-        updatedAt: now,
-        onboardingStatus: providerMatches.length > 0 ? "discovered" : "ssh_verified",
-        ...parsed.data,
-        ...(providerMatches[0] ? { providerMatch: providerMatches[0] } : {}),
+      const onboarding: OnboardingSnapshot = {
+        ssh: sshResult,
+        discovery,
+        providerMatches,
+        nextStep: "Require explicit provider match before activation",
       };
 
-      mockServers.push(record);
+      const now = new Date().toISOString();
+      const record = await createServerDraft({
+        id: randomUUID(),
+        timestamp: now,
+        draft: parsed.data,
+        onboardingStatus: providerMatches.length > 0 ? "discovered" : "ssh_verified",
+        ...(providerMatches[0] ? { providerMatch: providerMatches[0] } : {}),
+      });
 
       await writeAuditEvent({
         actorType: "user",
@@ -84,12 +139,7 @@ export const serverRoutes: AppRoute[] = [
         ok: true,
         data: {
           server: record,
-          onboarding: {
-            ssh: sshResult,
-            discovery,
-            providerMatches,
-            nextStep: "Require explicit provider match before activation",
-          },
+          onboarding,
         },
       });
     },
@@ -99,6 +149,18 @@ export const serverRoutes: AppRoute[] = [
     pattern: /^\/servers\/[^/]+\/activate$/,
     handler: async (context) => {
       const serverId = context.url.pathname.split("/")[2];
+
+      if (!serverId) {
+        return createJsonResponse(400, {
+          ok: false,
+          error: {
+            code: "INVALID_SERVER_ID",
+            message: "Server id is required in the request path",
+            requestId: context.requestId,
+          },
+        });
+      }
+
       const rawBody = await readJsonBody<unknown>(context.req);
       const parsed = activateServerSchema.safeParse(rawBody);
 
@@ -106,7 +168,7 @@ export const serverRoutes: AppRoute[] = [
         return createValidationErrorResponse(context.requestId, parsed.error.flatten());
       }
 
-      const server = mockServers.find((item) => item.id === serverId);
+      const server = await getServerById(serverId);
 
       if (!server) {
         return createJsonResponse(404, {
@@ -119,30 +181,179 @@ export const serverRoutes: AppRoute[] = [
         });
       }
 
-      server.providerMatch = {
+      const providerMatch: ServerRecord["providerMatch"] = {
         providerInstanceId: parsed.data.providerInstanceId,
         providerKind: parsed.data.providerKind,
         confidence: 1,
         reasons: ["Admin explicitly confirmed provider match"],
       };
-      server.onboardingStatus = "provider_matched";
-      server.updatedAt = new Date().toISOString();
 
       const decision = evaluateActivationPolicy({
-        onboardingStatus: server.onboardingStatus,
-        ...(server.providerMatch ? { providerMatch: server.providerMatch } : {}),
+        onboardingStatus: "provider_matched",
+        providerMatch,
       });
 
-      if (decision.action === "allow") {
-        server.onboardingStatus = "active";
+      const updatedServer = await confirmProviderMatch({
+        serverId,
+        providerMatch,
+        onboardingStatus: decision.action === "allow" ? "active" : "provider_matched",
+        timestamp: new Date().toISOString(),
+      });
+
+      if (!updatedServer) {
+        return createJsonResponse(404, {
+          ok: false,
+          error: {
+            code: "SERVER_NOT_FOUND",
+            message: "Server record disappeared before it could be activated",
+            requestId: context.requestId,
+          },
+        });
       }
 
       return createJsonResponse(200, {
         ok: true,
         data: {
-          server,
+          server: updatedServer,
           activation: decision,
           nextStep: "SpinupWP mapping becomes available after provider match",
+        },
+      });
+    },
+  },
+  {
+    method: "GET",
+    pattern: /^\/servers\/[^/]+\/spinupwp-candidates$/,
+    handler: async (context) => {
+      const serverId = context.url.pathname.split("/")[2];
+
+      if (!serverId) {
+        return createJsonResponse(400, {
+          ok: false,
+          error: {
+            code: "INVALID_SERVER_ID",
+            message: "Server id is required in the request path",
+            requestId: context.requestId,
+          },
+        });
+      }
+
+      const server = await getServerById(serverId);
+
+      if (!server) {
+        return createJsonResponse(404, {
+          ok: false,
+          error: {
+            code: "SERVER_NOT_FOUND",
+            message: "Server record was not found",
+            requestId: context.requestId,
+          },
+        });
+      }
+
+      if (server.onboardingStatus !== "active") {
+        return createJsonResponse(409, {
+          ok: false,
+          error: {
+            code: "SPINUPWP_LOCKED",
+            message: "SpinupWP mapping is only available after provider activation",
+            requestId: context.requestId,
+          },
+        });
+      }
+
+      const candidates = await new SpinupwpAdapter().listServers();
+
+      return createJsonResponse(200, {
+        ok: true,
+        data: {
+          server,
+          candidates,
+        },
+      });
+    },
+  },
+  {
+    method: "POST",
+    pattern: /^\/servers\/[^/]+\/spinupwp-map$/,
+    handler: async (context) => {
+      const serverId = context.url.pathname.split("/")[2];
+
+      if (!serverId) {
+        return createJsonResponse(400, {
+          ok: false,
+          error: {
+            code: "INVALID_SERVER_ID",
+            message: "Server id is required in the request path",
+            requestId: context.requestId,
+          },
+        });
+      }
+
+      const rawBody = await readJsonBody<unknown>(context.req);
+      const parsed = spinupwpMappingSchema.safeParse(rawBody);
+
+      if (!parsed.success) {
+        return createValidationErrorResponse(context.requestId, parsed.error.flatten());
+      }
+
+      const server = await getServerById(serverId);
+
+      if (!server) {
+        return createJsonResponse(404, {
+          ok: false,
+          error: {
+            code: "SERVER_NOT_FOUND",
+            message: "Server record was not found",
+            requestId: context.requestId,
+          },
+        });
+      }
+
+      if (server.onboardingStatus !== "active") {
+        return createJsonResponse(409, {
+          ok: false,
+          error: {
+            code: "SPINUPWP_LOCKED",
+            message: "SpinupWP mapping is only available after provider activation",
+            requestId: context.requestId,
+          },
+        });
+      }
+
+      const mappedServer = await mapSpinupwpServer({
+        serverId,
+        spinupwpServerId: parsed.data.spinupwpServerId,
+        timestamp: new Date().toISOString(),
+      });
+
+      if (!mappedServer) {
+        return createJsonResponse(404, {
+          ok: false,
+          error: {
+            code: "SERVER_NOT_FOUND",
+            message: "Server record disappeared before SpinupWP mapping completed",
+            requestId: context.requestId,
+          },
+        });
+      }
+
+      await writeAuditEvent({
+        actorType: "user",
+        actorId: "bootstrap-admin",
+        eventType: "server.spinupwp.mapped",
+        targetType: "server",
+        targetId: mappedServer.id,
+        metadata: {
+          spinupwpServerId: parsed.data.spinupwpServerId,
+        },
+      });
+
+      return createJsonResponse(200, {
+        ok: true,
+        data: {
+          server: mappedServer,
+          nextStep: "Deterministic health checks can now reference the mapped SpinupWP server",
         },
       });
     },

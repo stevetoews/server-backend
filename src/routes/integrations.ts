@@ -1,6 +1,9 @@
-import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
+import {
+  createIntegration,
+  listIntegrations,
+} from "../db/repositories/integrations.js";
 import { createJsonResponse, createValidationErrorResponse, readJsonBody, type AppRoute } from "../lib/http.js";
 import { integrationKindSchema } from "../modules/contracts/server.js";
 
@@ -10,21 +13,18 @@ const integrationSchema = z.object({
   enabled: z.boolean().default(true),
 });
 
-const integrations = [
-  { id: "int-linode", kind: "linode", label: "Linode Primary", enabled: true },
-  { id: "int-do", kind: "digitalocean", label: "DigitalOcean Fallback", enabled: false },
-  { id: "int-spinupwp", kind: "spinupwp", label: "SpinupWP Fleet", enabled: false },
-];
-
 export const integrationRoutes: AppRoute[] = [
   {
     method: "GET",
     pattern: /^\/integrations$/,
-    handler: async () =>
-      createJsonResponse(200, {
+    handler: async () => {
+      const integrations = await listIntegrations();
+
+      return createJsonResponse(200, {
         ok: true,
         data: integrations,
-      }),
+      });
+    },
   },
   {
     method: "POST",
@@ -37,12 +37,7 @@ export const integrationRoutes: AppRoute[] = [
         return createValidationErrorResponse(context.requestId, parsed.error.flatten());
       }
 
-      const integration = {
-        id: randomUUID(),
-        ...parsed.data,
-      };
-
-      integrations.push(integration);
+      const integration = await createIntegration(parsed.data);
 
       return createJsonResponse(201, {
         ok: true,

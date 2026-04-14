@@ -1,3 +1,5 @@
+import "dotenv/config";
+
 import { z } from "zod";
 
 const envSchema = z.object({
@@ -8,6 +10,10 @@ const envSchema = z.object({
   TURSO_DATABASE_URL: z.string().min(1, "TURSO_DATABASE_URL is required"),
   TURSO_AUTH_TOKEN: z.string().min(1, "TURSO_AUTH_TOKEN is required"),
   SESSION_SECRET: z.string().min(32, "SESSION_SECRET must be at least 32 characters"),
+  BOOTSTRAP_ADMIN_EMAIL: z.string().email("BOOTSTRAP_ADMIN_EMAIL must be a valid email"),
+  BOOTSTRAP_ADMIN_PASSWORD: z
+    .string()
+    .min(16, "BOOTSTRAP_ADMIN_PASSWORD must be at least 16 characters"),
   SSH_CONNECT_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
   SSH_COMMAND_TIMEOUT_MS: z.coerce.number().int().positive().default(20000),
   CHECK_SCHEDULE_CRON: z.string().default("*/5 * * * *"),

@@ -1,15 +1,9 @@
-import { checkCatalog } from "./catalog.js";
+import { runChecksForAllActiveServers, runChecksForServer } from "./service.js";
 
-export interface CheckResult {
-  checkId: string;
-  status: "healthy" | "degraded" | "failed";
-  summary: string;
+export async function runDeterministicChecks() {
+  return runChecksForAllActiveServers();
 }
 
-export async function runDeterministicChecks(): Promise<CheckResult[]> {
-  return checkCatalog.map((check) => ({
-    checkId: check.id,
-    status: "healthy",
-    summary: `${check.description} (mocked v1 result)`,
-  }));
+export async function runDeterministicChecksForServer(serverId: string) {
+  throw new Error(`runDeterministicChecksForServer(${serverId}) should not be called directly without loading the server`);
 }

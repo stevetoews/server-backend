@@ -1,0 +1,79 @@
+import { readdir, readFile } from "node:fs/promises";
+
+import { getDbClient } from "./client.js";
+
+const MIGRATIONS_DIR = new URL("../../migrations/", import.meta.url);
+
+function splitSqlStatements(source: string): string[] {
+  return source
+    .split(/;\s*(?:\r?\n|$)/g)
+    .map((statement) => statement.trim())
+    .filter(Boolean);
+}
+
+async function ensureMigrationTable(): Promise<void> {
+  const db = getDbClient();
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      name TEXT PRIMARY KEY,
+      applied_at TEXT NOT NULL
+    )
+  `);
+}
+
+async function getAppliedMigrationNames(): Promise<Set<string>> {
+  const db = getDbClient();
+  const result = await db.execute("SELECT name FROM schema_migrations");
+
+  return new Set(
+    result.rows
+      .map((row) => row.name)
+      .filter((name): name is string => typeof name === "string"),
+  );
+}
+
+export async function runMigrations(): Promise<string[]> {
+  await ensureMigrationTable();
+
+  const db = getDbClient();
+  const files = (await readdir(MIGRATIONS_DIR))
+    .filter((name) => name.endsWith(".sql"))
+    .sort((left, right) => left.localeCompare(right));
+  const applied = await getAppliedMigrationNames();
+  const executed: string[] = [];
+
+  for (const fileName of files) {
+    if (applied.has(fileName)) {
+      continue;
+    }
+
+    const sql = await readFile(new URL(fileName, MIGRATIONS_DIR), "utf8");
+    const statements = splitSqlStatements(sql);
+
+    for (const statement of statements) {
+      await db.execute(statement);
+    }
+
+    await db.execute({
+      sql: "INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)",
+      args: [fileName, new Date().toISOString()],
+    });
+
+    executed.push(fileName);
+  }
+
+  return executed;
+}
+
+export async function verifySchemaReady(): Promise<boolean> {
+  const db = getDbClient();
+  const result = await db.execute(`
+    SELECT name
+    FROM sqlite_master
+    WHERE type = 'table'
+      AND name IN ('schema_migrations', 'servers', 'integrations', 'audit_logs')
+  `);
+
+  return result.rows.length === 4;
+}

@@ -32,6 +32,26 @@ export const providerMatchSchema = z.object({
 });
 export type ProviderMatch = z.infer<typeof providerMatchSchema>;
 
+export const sshProbeSchema = z.object({
+  latencyMs: z.number(),
+  ok: z.boolean(),
+  target: z.object({
+    host: z.string(),
+    port: z.number(),
+    username: z.string(),
+  }),
+});
+export type SshProbe = z.infer<typeof sshProbeSchema>;
+
+export const hostDiscoverySchema = z.object({
+  architecture: z.string(),
+  distro: z.string(),
+  hostname: z.string(),
+  kernelVersion: z.string(),
+  primaryIp: z.string().optional(),
+});
+export type HostDiscovery = z.infer<typeof hostDiscoverySchema>;
+
 export const serverRecordSchema = serverDraftSchema.extend({
   id: z.string(),
   onboardingStatus: onboardingStatusSchema,
@@ -41,3 +61,11 @@ export const serverRecordSchema = serverDraftSchema.extend({
   updatedAt: z.string(),
 });
 export type ServerRecord = z.infer<typeof serverRecordSchema>;
+
+export const onboardingSnapshotSchema = z.object({
+  ssh: sshProbeSchema,
+  discovery: hostDiscoverySchema,
+  providerMatches: z.array(providerMatchSchema),
+  nextStep: z.string(),
+});
+export type OnboardingSnapshot = z.infer<typeof onboardingSnapshotSchema>;
