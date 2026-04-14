@@ -1,5 +1,12 @@
 import { insertHealthCheck, type HealthCheckRecord } from "../../db/repositories/health-checks.js";
-import { listActiveMonitoredServers, type listActiveMonitoredServers as _unused } from "../../db/repositories/servers.js";
+import {
+  createIncident,
+  getActiveIncidentForServerCheck,
+  resolveIncident,
+  updateIncidentSummary,
+} from "../../db/repositories/incidents.js";
+import { writeAuditEvent } from "../audit/logger.js";
+import { listActiveMonitoredServers } from "../../db/repositories/servers.js";
 import type { ServerRecord } from "../contracts/server.js";
 import { checkCatalog } from "./catalog.js";
 
@@ -10,12 +17,20 @@ export interface CheckRunSummary {
 
 function buildCheckResult(server: ServerRecord, checkId: string): Omit<HealthCheckRecord, "createdAt" | "id"> {
   if (checkId === "host.uptime") {
+    const status =
+      server.hostname.toLowerCase().includes("incident") || server.name.toLowerCase().includes("incident")
+        ? "failed"
+        : "healthy";
+
     return {
       serverId: server.id,
       checkType: checkId,
-      status: "healthy",
+      status,
       latencyMs: 118,
-      summary: `SSH uptime probe succeeded for ${server.hostname}`,
+      summary:
+        status === "healthy"
+          ? `SSH uptime probe succeeded for ${server.hostname}`
+          : `SSH uptime probe failed for ${server.hostname}`,
       rawOutput: {
         commandTemplateId: "check.host.uptime",
         target: server.ipAddress ?? server.hostname,
@@ -24,15 +39,23 @@ function buildCheckResult(server: ServerRecord, checkId: string): Omit<HealthChe
   }
 
   if (checkId === "host.disk.root") {
+    const status =
+      server.hostname.toLowerCase().includes("disk-alert") || server.name.toLowerCase().includes("disk-alert")
+        ? "degraded"
+        : "healthy";
+
     return {
       serverId: server.id,
       checkType: checkId,
-      status: "healthy",
+      status,
       latencyMs: 122,
-      summary: `Root filesystem usage remains within policy on ${server.hostname}`,
+      summary:
+        status === "healthy"
+          ? `Root filesystem usage remains within policy on ${server.hostname}`
+          : `Root filesystem usage exceeded policy threshold on ${server.hostname}`,
       rawOutput: {
         commandTemplateId: "check.disk.usage",
-        usagePercent: 41,
+        usagePercent: status === "healthy" ? 41 : 91,
       },
     };
   }
@@ -50,6 +73,78 @@ function buildCheckResult(server: ServerRecord, checkId: string): Omit<HealthChe
   };
 }
 
+function getIncidentPayload(check: HealthCheckRecord): {
+  severity: "warning" | "critical";
+  title: string;
+} | null {
+  if (check.status === "healthy") {
+    return null;
+  }
+
+  return {
+    severity: check.status === "failed" ? "critical" : "warning",
+    title:
+      check.status === "failed"
+        ? `Check failed: ${check.checkType}`
+        : `Check degraded: ${check.checkType}`,
+  };
+}
+
+async function syncIncidentForCheck(check: HealthCheckRecord): Promise<void> {
+  const existing = await getActiveIncidentForServerCheck({
+    serverId: check.serverId,
+    checkType: check.checkType,
+  });
+  const incidentPayload = getIncidentPayload(check);
+
+  if (!incidentPayload) {
+    if (existing) {
+      await resolveIncident(existing.id);
+      await writeAuditEvent({
+        actorType: "system",
+        eventType: "incident.resolved",
+        targetType: "incident",
+        targetId: existing.id,
+        metadata: {
+          checkType: check.checkType,
+          serverId: check.serverId,
+        },
+      });
+    }
+
+    return;
+  }
+
+  if (existing) {
+    await updateIncidentSummary({
+      id: existing.id,
+      title: incidentPayload.title,
+      summary: check.summary,
+    });
+    return;
+  }
+
+  const incident = await createIncident({
+    checkType: check.checkType,
+    serverId: check.serverId,
+    severity: incidentPayload.severity,
+    title: incidentPayload.title,
+    summary: check.summary,
+  });
+
+  await writeAuditEvent({
+    actorType: "system",
+    eventType: "incident.opened",
+    targetType: "incident",
+    targetId: incident.id,
+    metadata: {
+      checkType: check.checkType,
+      serverId: check.serverId,
+      severity: incident.severity,
+    },
+  });
+}
+
 export async function runChecksForServer(server: ServerRecord): Promise<HealthCheckRecord[]> {
   const checks = checkCatalog.filter((check) =>
     check.target === "host" || (check.target === "wordpress" && Boolean(server.spinupwpServerId)),
@@ -59,7 +154,9 @@ export async function runChecksForServer(server: ServerRecord): Promise<HealthCh
 
   for (const check of checks) {
     const result = buildCheckResult(server, check.id);
-    persisted.push(await insertHealthCheck(result));
+    const persistedCheck = await insertHealthCheck(result);
+    await syncIncidentForCheck(persistedCheck);
+    persisted.push(persistedCheck);
   }
 
   return persisted;

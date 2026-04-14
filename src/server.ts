@@ -13,6 +13,7 @@ import {
 import { healthRoutes } from "./routes/health.js";
 import { authRoutes } from "./routes/auth.js";
 import { checkRoutes } from "./routes/checks.js";
+import { incidentRoutes } from "./routes/incidents.js";
 import { integrationRoutes } from "./routes/integrations.js";
 import { serverRoutes } from "./routes/servers.js";
 import { ensureBootstrapAdmin } from "./db/repositories/users.js";
@@ -29,6 +30,7 @@ const routes: AppRoute[] = [
   ...healthRoutes,
   ...authRoutes,
   ...checkRoutes,
+  ...incidentRoutes,
   ...serverRoutes,
   ...integrationRoutes,
 ];
