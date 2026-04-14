@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: server-agent-api
+    env: node
+    plan: starter
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+
+  # Optional second service later if you split worker from API:
+  # - type: worker
+  #   name: server-agent-worker
+  #   env: node
+  #   plan: starter
+  #   buildCommand: npm install && npm run build
+  #   startCommand: node dist/worker.js
