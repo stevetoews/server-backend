@@ -119,71 +119,43 @@ export async function listNotificationDeliveries(
     eventType?: string;
     offset?: number;
     limit?: number;
+    status?: NotificationDeliveryRecord["status"];
     targetId?: string;
   },
 ): Promise<NotificationDeliveryRecord[]> {
   const db = getDbClient();
   const limit = input?.limit ?? 50;
   const offset = input?.offset ?? 0;
-
-  if (input?.targetId && input?.eventType) {
-    const result = await db.execute({
-      sql: `
-        SELECT id, target_id, event_type, subject, body_text, status, transport_kind, transport_response, error_message, created_at
-        FROM notification_deliveries
-        WHERE target_id = ?
-          AND event_type = ?
-        ORDER BY created_at DESC
-        LIMIT ?
-        OFFSET ?
-      `,
-      args: [input.targetId, input.eventType, limit, offset],
-    });
-
-    return result.rows.map((row) => mapNotificationDeliveryRow(row as Record<string, unknown>));
-  }
+  const conditions: string[] = [];
+  const args: Array<string | number> = [];
 
   if (input?.targetId) {
-    const result = await db.execute({
-      sql: `
-        SELECT id, target_id, event_type, subject, body_text, status, transport_kind, transport_response, error_message, created_at
-        FROM notification_deliveries
-        WHERE target_id = ?
-        ORDER BY created_at DESC
-        LIMIT ?
-        OFFSET ?
-      `,
-      args: [input.targetId, limit, offset],
-    });
-
-    return result.rows.map((row) => mapNotificationDeliveryRow(row as Record<string, unknown>));
+    conditions.push("target_id = ?");
+    args.push(input.targetId);
   }
 
   if (input?.eventType) {
-    const result = await db.execute({
-      sql: `
-        SELECT id, target_id, event_type, subject, body_text, status, transport_kind, transport_response, error_message, created_at
-        FROM notification_deliveries
-        WHERE event_type = ?
-        ORDER BY created_at DESC
-        LIMIT ?
-        OFFSET ?
-      `,
-      args: [input.eventType, limit, offset],
-    });
-
-    return result.rows.map((row) => mapNotificationDeliveryRow(row as Record<string, unknown>));
+    conditions.push("event_type = ?");
+    args.push(input.eventType);
   }
+
+  if (input?.status) {
+    conditions.push("status = ?");
+    args.push(input.status);
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
   const result = await db.execute({
     sql: `
       SELECT id, target_id, event_type, subject, body_text, status, transport_kind, transport_response, error_message, created_at
       FROM notification_deliveries
+      ${whereClause}
       ORDER BY created_at DESC
       LIMIT ?
       OFFSET ?
     `,
-    args: [limit, offset],
+    args: [...args, limit, offset],
   });
 
   return result.rows.map((row) => mapNotificationDeliveryRow(row as Record<string, unknown>));
@@ -191,57 +163,39 @@ export async function listNotificationDeliveries(
 
 export async function countNotificationDeliveries(input?: {
   eventType?: string;
+  status?: NotificationDeliveryRecord["status"];
   targetId?: string;
 }): Promise<number> {
   const db = getDbClient();
 
-  if (input?.targetId && input?.eventType) {
-    const result = await db.execute({
-      sql: `
-        SELECT COUNT(*) AS total
-        FROM notification_deliveries
-        WHERE target_id = ?
-          AND event_type = ?
-      `,
-      args: [input.targetId, input.eventType],
-    });
-
-    const row = result.rows[0] as Record<string, unknown> | undefined;
-    return row ? Number(row.total ?? 0) : 0;
-  }
+  const conditions: string[] = [];
+  const args: Array<string | number> = [];
 
   if (input?.targetId) {
-    const result = await db.execute({
-      sql: `
-        SELECT COUNT(*) AS total
-        FROM notification_deliveries
-        WHERE target_id = ?
-      `,
-      args: [input.targetId],
-    });
-
-    const row = result.rows[0] as Record<string, unknown> | undefined;
-    return row ? Number(row.total ?? 0) : 0;
+    conditions.push("target_id = ?");
+    args.push(input.targetId);
   }
 
   if (input?.eventType) {
-    const result = await db.execute({
-      sql: `
-        SELECT COUNT(*) AS total
-        FROM notification_deliveries
-        WHERE event_type = ?
-      `,
-      args: [input.eventType],
-    });
-
-    const row = result.rows[0] as Record<string, unknown> | undefined;
-    return row ? Number(row.total ?? 0) : 0;
+    conditions.push("event_type = ?");
+    args.push(input.eventType);
   }
 
-  const result = await db.execute(`
-    SELECT COUNT(*) AS total
-    FROM notification_deliveries
-  `);
+  if (input?.status) {
+    conditions.push("status = ?");
+    args.push(input.status);
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  const result = await db.execute({
+    sql: `
+      SELECT COUNT(*) AS total
+      FROM notification_deliveries
+      ${whereClause}
+    `,
+    args,
+  });
 
   const row = result.rows[0] as Record<string, unknown> | undefined;
   return row ? Number(row.total ?? 0) : 0;

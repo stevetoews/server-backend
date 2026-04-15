@@ -35,6 +35,20 @@ const notificationTargetUpdateSchema = z.object({
   enabled: z.boolean().optional(),
 });
 
+const deliveryStatusValues = ["delivered", "failed", "skipped"] as const;
+
+type DeliveryStatus = (typeof deliveryStatusValues)[number];
+
+function readDeliveryStatus(value: string | null): DeliveryStatus | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  return deliveryStatusValues.includes(value as DeliveryStatus)
+    ? (value as DeliveryStatus)
+    : undefined;
+}
+
 export const notificationRoutes: AppRoute[] = [
   {
     method: "GET",
@@ -125,9 +139,11 @@ export const notificationRoutes: AppRoute[] = [
       const offset = parseBoundedInt(context.url.searchParams.get("offset"), 0, 0, 10_000);
       const targetId = context.url.searchParams.get("targetId") ?? undefined;
       const eventType = context.url.searchParams.get("eventType") ?? undefined;
+      const status = readDeliveryStatus(context.url.searchParams.get("status"));
       const filter = {
         ...(targetId ? { targetId } : {}),
         ...(eventType ? { eventType } : {}),
+        ...(status ? { status } : {}),
       };
       const [deliveries, total] = await Promise.all([
         listNotificationDeliveries({
@@ -181,9 +197,11 @@ export const notificationRoutes: AppRoute[] = [
       const limit = parseBoundedInt(context.url.searchParams.get("limit"), 50, 1, 100);
       const offset = parseBoundedInt(context.url.searchParams.get("offset"), 0, 0, 10_000);
       const eventType = context.url.searchParams.get("eventType") ?? undefined;
+      const status = readDeliveryStatus(context.url.searchParams.get("status"));
       const filter = {
         targetId,
         ...(eventType ? { eventType } : {}),
+        ...(status ? { status } : {}),
       };
 
       const [deliveries, total] = await Promise.all([
