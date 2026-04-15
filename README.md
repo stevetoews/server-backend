@@ -50,6 +50,7 @@ Copy `.env.example` to `.env` and provide real values:
 - `POST /notifications/targets`
 - `POST /notifications/targets/:id`
 - `GET /notifications/deliveries`
+- `GET /notifications/targets/:id/deliveries`
 - `POST /notifications/targets/:id/test`
 - `POST /notifications/targets/:id/delete`
 - `GET /audit/logs`

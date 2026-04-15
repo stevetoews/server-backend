@@ -149,6 +149,64 @@ export const notificationRoutes: AppRoute[] = [
     },
   },
   {
+    method: "GET",
+    pattern: /^\/notifications\/targets\/[^/]+\/deliveries$/,
+    handler: async (context) => {
+      const targetId = context.url.pathname.split("/")[3];
+
+      if (!targetId) {
+        return createJsonResponse(400, {
+          ok: false,
+          error: {
+            code: "INVALID_NOTIFICATION_TARGET_ID",
+            message: "Notification target id is required in the request path",
+            requestId: context.requestId,
+          },
+        });
+      }
+
+      const target = await getNotificationTargetById(targetId);
+
+      if (!target) {
+        return createJsonResponse(404, {
+          ok: false,
+          error: {
+            code: "NOTIFICATION_TARGET_NOT_FOUND",
+            message: "Notification target was not found",
+            requestId: context.requestId,
+          },
+        });
+      }
+
+      const limit = parseBoundedInt(context.url.searchParams.get("limit"), 50, 1, 100);
+      const offset = parseBoundedInt(context.url.searchParams.get("offset"), 0, 0, 10_000);
+      const eventType = context.url.searchParams.get("eventType") ?? undefined;
+      const filter = {
+        targetId,
+        ...(eventType ? { eventType } : {}),
+      };
+
+      const [deliveries, total] = await Promise.all([
+        listNotificationDeliveries({
+          limit: limit + 1,
+          offset,
+          ...filter,
+        }),
+        countNotificationDeliveries(filter),
+      ]);
+      const page = paginateOffsetQuery(deliveries, limit, offset, total);
+
+      return createJsonResponse(200, {
+        ok: true,
+        data: {
+          target,
+          deliveries: page.items,
+          pagination: page.pagination,
+        },
+      });
+    },
+  },
+  {
     method: "POST",
     pattern: /^\/notifications\/targets\/[^/]+\/test$/,
     handler: async (context) => {
@@ -168,11 +226,24 @@ export const notificationRoutes: AppRoute[] = [
       try {
         await sendTestNotification(targetId);
       } catch (error) {
-        return createJsonResponse(404, {
+        const message = error instanceof Error ? error.message : "Notification delivery failed";
+
+        if (message === "Notification target was not found") {
+          return createJsonResponse(404, {
+            ok: false,
+            error: {
+              code: "NOTIFICATION_TARGET_NOT_FOUND",
+              message,
+              requestId: context.requestId,
+            },
+          });
+        }
+
+        return createJsonResponse(502, {
           ok: false,
           error: {
-            code: "NOTIFICATION_TARGET_NOT_FOUND",
-            message: error instanceof Error ? error.message : "Notification target was not found",
+            code: "NOTIFICATION_DELIVERY_FAILED",
+            message,
             requestId: context.requestId,
           },
         });
