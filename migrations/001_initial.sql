@@ -34,7 +34,6 @@ CREATE TABLE IF NOT EXISTS servers (
   provider_instance_id TEXT,
   provider_match_confidence REAL,
   provider_match_reasons_json TEXT,
-  spinupwp_server_id TEXT,
   monitoring_enabled INTEGER NOT NULL DEFAULT 1,
   allow_auto_reboot INTEGER NOT NULL DEFAULT 0,
   max_auto_reboots_per_24h INTEGER NOT NULL DEFAULT 1,
@@ -53,7 +52,6 @@ CREATE TABLE IF NOT EXISTS sites (
   wp_cli_path TEXT,
   php_version TEXT,
   cache_type TEXT,
-  spinupwp_site_id TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );

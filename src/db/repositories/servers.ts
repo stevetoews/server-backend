@@ -50,9 +50,6 @@ function mapServerRow(row: Record<string, unknown>): ServerRecord {
       ? { ipAddress: String(row.ip_address) }
       : {}),
     ...(toNullableString(row.notes) ? { notes: String(row.notes) } : {}),
-    ...(toNullableString(row.spinupwp_server_id)
-      ? { spinupwpServerId: String(row.spinupwp_server_id) }
-      : {}),
     ...(providerMatch ? { providerMatch } : {}),
   };
 }
@@ -85,7 +82,6 @@ export async function listServers(): Promise<ServerRecord[]> {
       provider_instance_id,
       provider_match_confidence,
       provider_match_reasons_json,
-      spinupwp_server_id,
       notes,
       created_at,
       updated_at
@@ -115,7 +111,6 @@ export async function listActiveMonitoredServers(): Promise<ServerRecord[]> {
       provider_instance_id,
       provider_match_confidence,
       provider_match_reasons_json,
-      spinupwp_server_id,
       notes,
       created_at,
       updated_at
@@ -148,7 +143,6 @@ export async function listActiveMonitoredServerRuntimeRecords(): Promise<ServerR
       provider_instance_id,
       provider_match_confidence,
       provider_match_reasons_json,
-      spinupwp_server_id,
       notes,
       created_at,
       updated_at
@@ -257,7 +251,6 @@ export async function getServerById(id: string): Promise<ServerRecord | null> {
         provider_instance_id,
         provider_match_confidence,
         provider_match_reasons_json,
-        spinupwp_server_id,
         notes,
         created_at,
         updated_at
@@ -293,7 +286,6 @@ export async function getServerRuntimeById(id: string): Promise<ServerRuntimeRec
         provider_match_reasons_json,
         os_name,
         os_version,
-        spinupwp_server_id,
         notes,
         created_at,
         updated_at
@@ -306,57 +298,4 @@ export async function getServerRuntimeById(id: string): Promise<ServerRuntimeRec
 
   const row = result.rows[0];
   return row ? mapServerRuntimeRow(row as Record<string, unknown>) : null;
-}
-
-export async function confirmProviderMatch(input: {
-  serverId: string;
-  providerMatch: ProviderMatch;
-  onboardingStatus: ServerRecord["onboardingStatus"];
-  timestamp: string;
-}): Promise<ServerRecord | null> {
-  const db = getDbClient();
-
-  await db.execute({
-    sql: `
-      UPDATE servers
-      SET provider_kind = ?,
-          provider_instance_id = ?,
-          provider_match_confidence = ?,
-          provider_match_reasons_json = ?,
-          onboarding_status = ?,
-          updated_at = ?
-      WHERE id = ?
-    `,
-    args: [
-      input.providerMatch.providerKind,
-      input.providerMatch.providerInstanceId,
-      input.providerMatch.confidence,
-      serializeJsonColumn(input.providerMatch.reasons),
-      input.onboardingStatus,
-      input.timestamp,
-      input.serverId,
-    ],
-  });
-
-  return getServerById(input.serverId);
-}
-
-export async function mapSpinupwpServer(input: {
-  serverId: string;
-  spinupwpServerId: string;
-  timestamp: string;
-}): Promise<ServerRecord | null> {
-  const db = getDbClient();
-
-  await db.execute({
-    sql: `
-      UPDATE servers
-      SET spinupwp_server_id = ?,
-          updated_at = ?
-      WHERE id = ?
-    `,
-    args: [input.spinupwpServerId, input.timestamp, input.serverId],
-  });
-
-  return getServerById(input.serverId);
 }

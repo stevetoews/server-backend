@@ -28,12 +28,15 @@ CREATE TABLE IF NOT EXISTS servers (
   ip_address TEXT,
   ssh_port INTEGER NOT NULL DEFAULT 22,
   ssh_username TEXT NOT NULL,
+  ssh_auth_mode TEXT NOT NULL,
   ssh_key_ref TEXT,
+  onboarding_status TEXT NOT NULL DEFAULT 'draft',
   os_name TEXT,
   os_version TEXT,
-  provider_kind TEXT NOT NULL, -- linode | digitalocean
-  provider_instance_id TEXT NOT NULL,
-  spinupwp_server_id TEXT,
+  provider_kind TEXT, -- linode | digitalocean
+  provider_instance_id TEXT,
+  provider_match_confidence REAL,
+  provider_match_reasons_json TEXT,
   monitoring_enabled INTEGER NOT NULL DEFAULT 1,
   allow_auto_reboot INTEGER NOT NULL DEFAULT 0,
   max_auto_reboots_per_24h INTEGER NOT NULL DEFAULT 1,
@@ -52,7 +55,6 @@ CREATE TABLE IF NOT EXISTS sites (
   wp_cli_path TEXT,
   php_version TEXT,
   cache_type TEXT,
-  spinupwp_site_id TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );

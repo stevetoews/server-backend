@@ -9,7 +9,7 @@ export interface ProviderInstance {
 }
 
 export interface ProviderAdapter {
-  kind: "linode" | "digitalocean" | "spinupwp";
+  kind: "linode" | "digitalocean";
 }
 
 export interface PrimaryProviderAdapter extends ProviderAdapter {

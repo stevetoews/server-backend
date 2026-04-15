@@ -1,6 +1,6 @@
 # Provider Matching Rules
 
-Provider matching is required before a server can become active.
+Provider matching enriches server inventory and reboot workflows. It is no longer an activation gate.
 
 ## Required primary provider
 One of:
@@ -18,6 +18,6 @@ Use weighted scoring:
 1. SSH discovery succeeds
 2. Fetch candidate provider instances
 3. Rank candidates
-4. Admin confirms match
-5. Save provider kind + provider instance id
-6. Only then allow SpinupWP mapping
+4. Save the best provider kind + provider instance id when confidence is acceptable
+5. Surface provider metadata as read-only context in the UI
+6. Use the saved provider instance only for provider-native actions such as reboot

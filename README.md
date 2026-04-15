@@ -8,14 +8,13 @@ Node.js 22+ TypeScript API and worker scaffold for the internal server maintenan
 - Turso/libSQL client bootstrap
 - SSH-first onboarding with live SSH verification and host discovery
 - Linode provider matching with real API-backed snapshots
-- SpinupWP adapter placeholder for post-match mapping
-- Live deterministic host/service checks, policy engine, audit logging, and notifications
+- Live deterministic host/service checks, WordOps inspection, policy engine, audit logging, and notifications
 
 ## Product constraints baked into v1
 
 - GPT/Codex target only, no Claude dependency
 - SSH-first onboarding
-- Provider match to Linode or DigitalOcean required before activation
+- Auto-activate after successful SSH and host discovery
 - Strict SSH command allowlists
 - Deterministic monitoring/remediation first, AI only later for summaries
 - No plaintext secrets in logs or frontend payloads
@@ -27,7 +26,7 @@ Copy `.env.example` to `.env` and provide real values:
 - `TURSO_DATABASE_URL`
 - `TURSO_AUTH_TOKEN`
 - `SESSION_SECRET`
-- optional provider tokens for Linode, DigitalOcean, and SpinupWP
+- optional provider tokens for Linode and DigitalOcean
 - optional SMTP settings for notification delivery
 
 ## Scripts
@@ -42,7 +41,9 @@ Copy `.env.example` to `.env` and provide real values:
 - `GET /health`
 - `GET /servers`
 - `POST /servers`
-- `POST /servers/:id/activate`
+- `GET /servers/:id/wordops`
+- `POST /servers/:id/wordops/sync`
+- `GET /servers/:id/sites`
 - `GET /integrations`
 - `POST /integrations`
 - `GET /notifications/targets`
@@ -62,8 +63,8 @@ Copy `.env.example` to `.env` and provide real values:
 2. Test SSH connectivity
 3. Discover host metadata
 4. Fetch and rank Linode/DigitalOcean provider candidates
-5. Require explicit provider confirmation before activation
-6. Start scheduled deterministic checks once active
+5. Persist provider metadata as read-only context when available
+6. Activate immediately and start scheduled checks
 
 ## Migrations
 
@@ -80,6 +81,6 @@ SQL migrations live in `migrations/`:
 
 ## Notes
 
-- DigitalOcean provider matching remains out of scope for the first live-server MVP.
+- DigitalOcean provider matching remains secondary to the Akamai/Linode-first MVP.
 - SSH passwords are stored encrypted at rest and never returned by the API.
 - Notification delivery uses SMTP when configured and falls back to simulated delivery in local/dev environments.

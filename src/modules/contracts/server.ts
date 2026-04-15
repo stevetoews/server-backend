@@ -1,13 +1,12 @@
 import { z } from "zod";
 
-export const integrationKindSchema = z.enum(["linode", "digitalocean", "spinupwp"]);
+export const integrationKindSchema = z.enum(["linode", "digitalocean"]);
 export type IntegrationKind = z.infer<typeof integrationKindSchema>;
 
 export const onboardingStatusSchema = z.enum([
   "draft",
   "ssh_verified",
   "discovered",
-  "provider_matched",
   "active",
 ]);
 export type OnboardingStatus = z.infer<typeof onboardingStatusSchema>;
@@ -76,7 +75,6 @@ export const serverRecordSchema = serverDraftSchema.extend({
   osVersion: z.string().optional(),
   providerMatch: providerMatchSchema.optional(),
   providerSnapshot: linodeSnapshotSchema.optional(),
-  spinupwpServerId: z.string().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

@@ -15,12 +15,6 @@
 - match droplet by IP / name
 - reboot droplet
 
-## modules/providers/spinupwp
-- list servers
-- list sites
-- restart supported services
-- match server/site after provider mapping
-
 ## modules/checks
 - http
 - ssh
@@ -30,7 +24,7 @@
 - mysql
 - nginx
 - phpfpm
-- wordpress
+- wordops
 
 ## modules/policies
 - evaluate failures

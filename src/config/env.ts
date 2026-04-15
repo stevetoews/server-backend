@@ -42,7 +42,6 @@ const envSchema = z.object({
   REMEDIATION_MAX_REBOOTS_PER_24H: z.coerce.number().int().min(0).default(1),
   LINODE_API_TOKEN: z.string().optional(),
   DIGITALOCEAN_API_TOKEN: z.string().optional(),
-  SPINUPWP_API_TOKEN: z.string().optional(),
   NOTIFICATION_SMTP_HOST: emptyStringToUndefined(z.string()),
   NOTIFICATION_SMTP_PORT: z.preprocess(
     (value) => (value === "" ? undefined : value),

@@ -20,6 +20,7 @@ import { incidentRoutes } from "./routes/incidents.js";
 import { integrationRoutes } from "./routes/integrations.js";
 import { notificationRoutes } from "./routes/notifications.js";
 import { serverRoutes } from "./routes/servers.js";
+import { wordopsRoutes } from "./routes/wordops.js";
 import { ensureBootstrapAdmin } from "./db/repositories/users.js";
 import { ensureNotificationTarget } from "./db/repositories/notification-targets.js";
 import { readSessionUserId } from "./modules/auth/session.js";
@@ -113,6 +114,7 @@ const routes: AppRoute[] = [
   ...checkRoutes,
   ...incidentRoutes,
   ...serverRoutes,
+  ...wordopsRoutes,
   ...integrationRoutes,
   ...notificationRoutes,
 ];
