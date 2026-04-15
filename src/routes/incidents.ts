@@ -13,12 +13,15 @@ import {
   completeRemediationRun,
   createRemediationRun,
   countRemediationRunsByServerId,
+  countRemediationRunsByIncidentId,
   listRemediationRunsByServerId,
+  listRemediationRunsByIncidentId,
 } from "../db/repositories/remediation-runs.js";
 import { getServerById } from "../db/repositories/servers.js";
 import { createJsonResponse, type AppRoute } from "../lib/http.js";
 import { createValidationErrorResponse, readJsonBody } from "../lib/http.js";
 import { paginateOffsetQuery, parseBoundedInt } from "../lib/pagination.js";
+import { countAuditLogs, listAuditLogs } from "../db/repositories/audit.js";
 import { writeAuditEvent } from "../modules/audit/logger.js";
 import {
   getRemediationActionByType,
@@ -89,6 +92,71 @@ async function enrichIncident(incident: IncidentRecord): Promise<EnrichedInciden
 }
 
 export const incidentRoutes: AppRoute[] = [
+  {
+    method: "GET",
+    pattern: /^\/incidents\/[^/]+$/,
+    handler: async (context) => {
+      const incidentId = context.url.pathname.split("/")[2];
+
+      if (!incidentId) {
+        return createJsonResponse(400, {
+          ok: false,
+          error: {
+            code: "INVALID_INCIDENT_ID",
+            message: "Incident id is required in the request path",
+            requestId: context.requestId,
+          },
+        });
+      }
+
+      const incident = await getIncidentById(incidentId);
+
+      if (!incident) {
+        return createJsonResponse(404, {
+          ok: false,
+          error: {
+            code: "INCIDENT_NOT_FOUND",
+            message: "Incident record was not found",
+            requestId: context.requestId,
+          },
+        });
+      }
+
+      const server = await getServerById(incident.serverId);
+
+      if (!server) {
+        return createJsonResponse(404, {
+          ok: false,
+          error: {
+            code: "SERVER_NOT_FOUND",
+            message: "Server record was not found for this incident",
+            requestId: context.requestId,
+          },
+        });
+      }
+
+      const [remediationCount, auditCount] = await Promise.all([
+        countRemediationRunsByIncidentId(incident.id),
+        countAuditLogs({ targetType: "incident", targetId: incident.id }),
+      ]);
+      const [remediations, audits] = await Promise.all([
+        listRemediationRunsByIncidentId(incident.id, remediationCount, 0),
+        listAuditLogs({ targetType: "incident", targetId: incident.id, limit: auditCount, offset: 0 }),
+      ]);
+
+      const enrichedIncident = await enrichIncident(incident);
+
+      return createJsonResponse(200, {
+        ok: true,
+        data: {
+          incident: enrichedIncident,
+          server,
+          audits,
+          remediations,
+        },
+      });
+    },
+  },
   {
     method: "GET",
     pattern: /^\/incidents$/,

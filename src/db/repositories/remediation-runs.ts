@@ -166,3 +166,51 @@ export async function countRemediationRunsByServerId(serverId: string): Promise<
   const row = result.rows[0] as Record<string, unknown> | undefined;
   return row ? Number(row.total ?? 0) : 0;
 }
+
+export async function listRemediationRunsByIncidentId(
+  incidentId: string,
+  limit = 20,
+  offset = 0,
+): Promise<RemediationRunRecord[]> {
+  const db = getDbClient();
+  const result = await db.execute({
+    sql: `
+      SELECT
+        id,
+        incident_id,
+        server_id,
+        action_type,
+        provider,
+        status,
+        command_text,
+        request_json,
+        response_json,
+        output_snippet,
+        started_at,
+        finished_at
+      FROM remediation_runs
+      WHERE incident_id = ?
+      ORDER BY started_at DESC
+      LIMIT ?
+      OFFSET ?
+    `,
+    args: [incidentId, limit, offset],
+  });
+
+  return result.rows.map((row) => mapRemediationRunRow(row as Record<string, unknown>));
+}
+
+export async function countRemediationRunsByIncidentId(incidentId: string): Promise<number> {
+  const db = getDbClient();
+  const result = await db.execute({
+    sql: `
+      SELECT COUNT(*) AS total
+      FROM remediation_runs
+      WHERE incident_id = ?
+    `,
+    args: [incidentId],
+  });
+
+  const row = result.rows[0] as Record<string, unknown> | undefined;
+  return row ? Number(row.total ?? 0) : 0;
+}
