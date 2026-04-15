@@ -25,17 +25,37 @@ import { discoverHostMetadata, testSshConnection } from "../modules/ssh/discover
 import type { SshCredentials } from "../modules/ssh/types.js";
 import { encryptSecret } from "../modules/security/secrets.js";
 
-const createServerSchema = serverDraftSchema.extend({
-  sshPassword: z.string().min(1).max(500).optional(),
-}).superRefine((value, context) => {
-  if (value.sshAuthMode === "password" && !value.sshPassword) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "SSH password is required when sshAuthMode is password",
-      path: ["sshPassword"],
-    });
-  }
-});
+const createServerSchema = z
+  .object({
+    name: serverDraftSchema.shape.name,
+    environment: serverDraftSchema.shape.environment,
+    hostname: z.string().max(255).optional(),
+    ipAddress: serverDraftSchema.shape.ipAddress,
+    sshPort: serverDraftSchema.shape.sshPort,
+    sshUsername: serverDraftSchema.shape.sshUsername,
+    sshAuthMode: serverDraftSchema.shape.sshAuthMode,
+    notes: serverDraftSchema.shape.notes,
+    sshPassword: z.string().min(1).max(500).optional(),
+  })
+  .superRefine((value, context) => {
+    const normalizedHostname = value.hostname?.trim();
+
+    if (!normalizedHostname && !value.ipAddress) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Hostname or public IP is required",
+        path: ["hostname"],
+      });
+    }
+
+    if (value.sshAuthMode === "password" && !value.sshPassword) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "SSH password is required when sshAuthMode is password",
+        path: ["sshPassword"],
+      });
+    }
+  });
 
 const activateServerSchema = z.object({
   providerInstanceId: z.string().min(1),
@@ -155,8 +175,9 @@ export const serverRoutes: AppRoute[] = [
         return createValidationErrorResponse(context.requestId, parsed.error.flatten());
       }
 
+      const requestedHostname = parsed.data.hostname?.trim();
       const sshTarget = {
-        host: parsed.data.ipAddress ?? parsed.data.hostname,
+        host: parsed.data.ipAddress ?? requestedHostname ?? "",
         port: parsed.data.sshPort,
         username: parsed.data.sshUsername,
       };
@@ -190,7 +211,7 @@ export const serverRoutes: AppRoute[] = [
         timestamp: now,
         draft: {
           environment: parsed.data.environment,
-          hostname: parsed.data.hostname,
+          hostname: requestedHostname || discovery.hostname,
           ...(parsed.data.ipAddress ? { ipAddress: parsed.data.ipAddress } : {}),
           name: parsed.data.name,
           ...(parsed.data.notes ? { notes: parsed.data.notes } : {}),
