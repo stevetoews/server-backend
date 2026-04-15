@@ -12,20 +12,27 @@ export const remediationCatalog: readonly RemediationActionDefinition[] = [
     allowedCommandTemplateId: "fix.nginx.restart",
     provider: "ssh",
     title: "Restart Nginx",
-    triggerCheckTypes: ["host.uptime"],
+    triggerCheckTypes: ["service.nginx"],
+  },
+  {
+    actionType: "restart.sql",
+    allowedCommandTemplateId: "fix.sql.restart",
+    provider: "ssh",
+    title: "Restart SQL Service",
+    triggerCheckTypes: ["service.sql"],
+  },
+  {
+    actionType: "restart.phpfpm",
+    allowedCommandTemplateId: "fix.phpfpm.restart",
+    provider: "ssh",
+    title: "Restart PHP-FPM",
+    triggerCheckTypes: ["service.phpfpm"],
   },
   {
     actionType: "provider.reboot",
     provider: "linode",
     title: "Reboot Provider Instance",
     triggerCheckTypes: ["host.uptime"],
-  },
-  {
-    actionType: "wordpress.cache.flush",
-    allowedCommandTemplateId: "wp.cache.flush",
-    provider: "ssh",
-    title: "Flush WordPress Cache",
-    triggerCheckTypes: ["wordpress.installation", "host.disk.root"],
   },
 ];
 

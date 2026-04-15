@@ -6,18 +6,17 @@ Node.js 22+ TypeScript API and worker scaffold for the internal server maintenan
 
 - REST endpoints for health, servers, integrations, and notifications
 - Turso/libSQL client bootstrap
-- SSH-first onboarding flow scaffold
-- Linode and DigitalOcean provider matching scaffold
+- SSH-first onboarding with live SSH verification and host discovery
+- Linode provider matching with real API-backed snapshots
 - SpinupWP adapter placeholder for post-match mapping
-- Deterministic checks, policy engine, audit logging, and notification scaffolds
+- Live deterministic host/service checks, policy engine, audit logging, and notifications
 
 ## Product constraints baked into v1
 
 - GPT/Codex target only, no Claude dependency
 - SSH-first onboarding
 - Provider match to Linode or DigitalOcean required before activation
-- SpinupWP mapping only after provider match
-- Strict SSH and WP-CLI command allowlists
+- Strict SSH command allowlists
 - Deterministic monitoring/remediation first, AI only later for summaries
 - No plaintext secrets in logs or frontend payloads
 
@@ -59,13 +58,12 @@ Copy `.env.example` to `.env` and provide real values:
 
 ## Onboarding flow reflected in the server route
 
-1. Create a draft server record
+1. Create a server record
 2. Test SSH connectivity
 3. Discover host metadata
 4. Fetch and rank Linode/DigitalOcean provider candidates
 5. Require explicit provider confirmation before activation
-6. Allow SpinupWP mapping after provider confirmation
-7. Start deterministic checks once active
+6. Start scheduled deterministic checks once active
 
 ## Migrations
 
@@ -78,9 +76,10 @@ SQL migrations live in `migrations/`:
 - `005_notifications.sql`
 - `006_notification_delivery_transport.sql`
 - `007_notification_targets_unique.sql`
+- `008_server_ssh_credentials.sql`
 
 ## Notes
 
-- Provider adapters return mocked data for now but are structured for real API integration.
-- The in-memory route storage is intentionally temporary and should be replaced by repository modules backed by Turso.
+- DigitalOcean provider matching remains out of scope for the first live-server MVP.
+- SSH passwords are stored encrypted at rest and never returned by the API.
 - Notification delivery uses SMTP when configured and falls back to simulated delivery in local/dev environments.

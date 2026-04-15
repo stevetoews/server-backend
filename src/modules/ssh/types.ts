@@ -10,10 +10,17 @@ export interface CommandTemplate {
   id: string;
 }
 
+export type SshAuthMode = "password" | "private_key" | "passwordless_agent";
+
 export interface SshConnectionTarget {
   host: string;
   port: number;
   username: string;
+}
+
+export interface SshCredentials {
+  authMode: SshAuthMode;
+  password?: string;
 }
 
 export interface HostDiscovery {
@@ -28,4 +35,12 @@ export interface SshProbeResult {
   latencyMs: number;
   ok: boolean;
   target: SshConnectionTarget;
+}
+
+export interface SshCommandResult {
+  durationMs: number;
+  exitCode: number | null;
+  signal?: string;
+  stderr: string;
+  stdout: string;
 }

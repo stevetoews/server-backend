@@ -19,7 +19,7 @@ export const serverDraftSchema = z.object({
   ipAddress: z.string().ip().optional(),
   sshPort: z.number().int().min(1).max(65535).default(22),
   sshUsername: z.string().min(1).max(64),
-  sshAuthMode: z.enum(["private_key", "passwordless_agent"]),
+  sshAuthMode: z.enum(["password", "private_key", "passwordless_agent"]),
   notes: z.string().max(1000).optional(),
 });
 export type ServerDraftInput = z.infer<typeof serverDraftSchema>;
@@ -72,6 +72,8 @@ export type HostDiscovery = z.infer<typeof hostDiscoverySchema>;
 export const serverRecordSchema = serverDraftSchema.extend({
   id: z.string(),
   onboardingStatus: onboardingStatusSchema,
+  osName: z.string().optional(),
+  osVersion: z.string().optional(),
   providerMatch: providerMatchSchema.optional(),
   providerSnapshot: linodeSnapshotSchema.optional(),
   spinupwpServerId: z.string().optional(),

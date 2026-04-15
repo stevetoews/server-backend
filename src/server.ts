@@ -23,6 +23,7 @@ import { serverRoutes } from "./routes/servers.js";
 import { ensureBootstrapAdmin } from "./db/repositories/users.js";
 import { ensureNotificationTarget } from "./db/repositories/notification-targets.js";
 import { readSessionUserId } from "./modules/auth/session.js";
+import { startCheckScheduler } from "./modules/checks/scheduler.js";
 
 const deployedFrontendOrigins = new Set([
   "https://server-frontend-beige.vercel.app",
@@ -199,6 +200,7 @@ async function bootstrap(): Promise<void> {
     label: "Bootstrap Admin",
     address: bootstrapAdmin.email,
   });
+  startCheckScheduler();
 
   server.listen(env.PORT, () => {
     const payload = createJsonResponse(200, {

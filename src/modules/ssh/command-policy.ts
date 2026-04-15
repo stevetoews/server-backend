@@ -2,21 +2,42 @@ import type { CommandTemplate } from "./types.js";
 
 export const allowedCommandTemplates: readonly CommandTemplate[] = [
   { id: "check.host.uptime", category: "status_check", command: "uptime" },
-  { id: "check.disk.usage", category: "status_check", command: "df -h /" },
-  { id: "check.memory", category: "status_check", command: "free -m" },
-  { id: "check.load", category: "status_check", command: "cat /proc/loadavg" },
-  { id: "check.nginx.status", category: "status_check", command: "systemctl status nginx --no-pager" },
-  { id: "check.mysql.status", category: "status_check", command: "systemctl status mysql --no-pager" },
-  { id: "check.phpfpm.status", category: "status_check", command: "systemctl status php8.2-fpm --no-pager" },
-  { id: "fix.nginx.restart", category: "service_restart", command: "systemctl restart nginx" },
-  { id: "fix.mysql.restart", category: "service_restart", command: "systemctl restart mysql" },
-  { id: "fix.phpfpm.restart", category: "service_restart", command: "systemctl restart php8.2-fpm" },
-  { id: "wp.core.isInstalled", category: "wordpress_maintenance", command: "wp core is-installed --quiet" },
-  { id: "wp.option.home", category: "wordpress_maintenance", command: "wp option get home" },
-  { id: "wp.option.siteurl", category: "wordpress_maintenance", command: "wp option get siteurl" },
-  { id: "wp.cache.flush", category: "wordpress_maintenance", command: "wp cache flush" },
-  { id: "wp.transients.deleteAll", category: "wordpress_maintenance", command: "wp transient delete --all" },
-  { id: "wp.cron.runDue", category: "wordpress_maintenance", command: "wp cron event run --due-now" },
+  { id: "check.disk.root", category: "status_check", command: "df -Pk /" },
+  {
+    id: "check.service.nginx",
+    category: "status_check",
+    command:
+      "sh -lc 'if systemctl list-unit-files nginx.service --no-legend >/dev/null 2>&1; then printf \"service=nginx\\nstatus=%s\\n\" \"$(systemctl is-active nginx 2>/dev/null || true)\"; else printf \"service=nginx\\nstatus=missing\\n\"; fi'",
+  },
+  {
+    id: "check.service.sql",
+    category: "status_check",
+    command:
+      "sh -lc 'for svc in mysql mariadb mysqld; do if systemctl list-unit-files \"$svc.service\" --no-legend >/dev/null 2>&1; then printf \"service=%s\\nstatus=%s\\n\" \"$svc\" \"$(systemctl is-active \"$svc\" 2>/dev/null || true)\"; exit 0; fi; done; printf \"service=sql\\nstatus=missing\\n\"'",
+  },
+  {
+    id: "check.service.phpfpm",
+    category: "status_check",
+    command:
+      "sh -lc 'svc=$(systemctl list-unit-files \"php*-fpm.service\" --no-legend 2>/dev/null | awk \"NR==1 {print \\$1}\" | sed \"s/\\.service$//\"); if [ -n \"$svc\" ]; then printf \"service=%s\\nstatus=%s\\n\" \"$svc\" \"$(systemctl is-active \"$svc\" 2>/dev/null || true)\"; else printf \"service=php-fpm\\nstatus=missing\\n\"; fi'",
+  },
+  {
+    id: "fix.nginx.restart",
+    category: "service_restart",
+    command: "systemctl restart nginx && systemctl is-active nginx",
+  },
+  {
+    id: "fix.sql.restart",
+    category: "service_restart",
+    command:
+      "sh -lc 'for svc in mysql mariadb mysqld; do if systemctl list-unit-files \"$svc.service\" --no-legend >/dev/null 2>&1; then systemctl restart \"$svc\" && systemctl is-active \"$svc\"; exit $?; fi; done; echo \"No SQL service found\"; exit 1'",
+  },
+  {
+    id: "fix.phpfpm.restart",
+    category: "service_restart",
+    command:
+      "sh -lc 'svc=$(systemctl list-unit-files \"php*-fpm.service\" --no-legend 2>/dev/null | awk \"NR==1 {print \\$1}\" | sed \"s/\\.service$//\"); if [ -n \"$svc\" ]; then systemctl restart \"$svc\" && systemctl is-active \"$svc\"; else echo \"No PHP-FPM service found\"; exit 1; fi'",
+  },
 ];
 
 const templateIndex = new Map(allowedCommandTemplates.map((template) => [template.id, template]));

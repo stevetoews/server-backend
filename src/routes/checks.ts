@@ -70,7 +70,7 @@ export const checkRoutes: AppRoute[] = [
           });
         }
 
-        const checks = await runChecksForServer(server);
+        const checks = await runChecksForServer(server.id);
 
         return createJsonResponse(200, {
           ok: true,

@@ -22,6 +22,20 @@ import { LinodeAdapter } from "../modules/providers/linode.js";
 import { SpinupwpAdapter } from "../modules/providers/spinupwp.js";
 import { evaluateActivationPolicy } from "../modules/policies/engine.js";
 import { discoverHostMetadata, testSshConnection } from "../modules/ssh/discovery.js";
+import type { SshCredentials } from "../modules/ssh/types.js";
+import { encryptSecret } from "../modules/security/secrets.js";
+
+const createServerSchema = serverDraftSchema.extend({
+  sshPassword: z.string().min(1).max(500).optional(),
+}).superRefine((value, context) => {
+  if (value.sshAuthMode === "password" && !value.sshPassword) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "SSH password is required when sshAuthMode is password",
+      path: ["sshPassword"],
+    });
+  }
+});
 
 const activateServerSchema = z.object({
   providerInstanceId: z.string().min(1),
@@ -135,7 +149,7 @@ export const serverRoutes: AppRoute[] = [
     pattern: /^\/servers$/,
     handler: async (context) => {
       const rawBody = await readJsonBody<unknown>(context.req);
-      const parsed = serverDraftSchema.safeParse(rawBody);
+      const parsed = createServerSchema.safeParse(rawBody);
 
       if (!parsed.success) {
         return createValidationErrorResponse(context.requestId, parsed.error.flatten());
@@ -146,9 +160,18 @@ export const serverRoutes: AppRoute[] = [
         port: parsed.data.sshPort,
         username: parsed.data.sshUsername,
       };
+      const sshCredentials: SshCredentials =
+        parsed.data.sshAuthMode === "password"
+          ? {
+              authMode: "password" as const,
+              password: parsed.data.sshPassword ?? "",
+            }
+          : {
+              authMode: parsed.data.sshAuthMode,
+            };
 
-      const sshResult = await testSshConnection(sshTarget);
-      const discovery = await discoverHostMetadata(sshTarget);
+      const sshResult = await testSshConnection(sshTarget, sshCredentials);
+      const discovery = await discoverHostMetadata(sshTarget, sshCredentials);
       const providerMatches = await findProviderMatches({
         hostname: discovery.hostname,
         providers: [new LinodeAdapter(), new DigitalOceanAdapter()],
@@ -165,8 +188,22 @@ export const serverRoutes: AppRoute[] = [
       const record = await createServerDraft({
         id: randomUUID(),
         timestamp: now,
-        draft: parsed.data,
+        draft: {
+          environment: parsed.data.environment,
+          hostname: parsed.data.hostname,
+          ...(parsed.data.ipAddress ? { ipAddress: parsed.data.ipAddress } : {}),
+          name: parsed.data.name,
+          ...(parsed.data.notes ? { notes: parsed.data.notes } : {}),
+          sshAuthMode: parsed.data.sshAuthMode,
+          sshPort: parsed.data.sshPort,
+          sshUsername: parsed.data.sshUsername,
+        },
+        ...(parsed.data.sshPassword
+          ? { encryptedSshPassword: encryptSecret(parsed.data.sshPassword) }
+          : {}),
         onboardingStatus: providerMatches.length > 0 ? "discovered" : "ssh_verified",
+        osName: discovery.distro,
+        osVersion: discovery.kernelVersion,
         ...(providerMatches[0] ? { providerMatch: providerMatches[0] } : {}),
       });
 
