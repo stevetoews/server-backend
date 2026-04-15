@@ -24,13 +24,24 @@ import { ensureBootstrapAdmin } from "./db/repositories/users.js";
 import { ensureNotificationTarget } from "./db/repositories/notification-targets.js";
 import { readSessionUserId } from "./modules/auth/session.js";
 
-const corsHeaders = {
+const deployedFrontendOrigins = new Set([
+  "https://server-frontend-beige.vercel.app",
+]);
+
+function buildCorsHeaders(origin?: string) {
+  const allowedOrigin =
+    origin && allowedOrigins.has(origin)
+      ? origin
+      : env.FRONTEND_BASE_URL;
+
+  return {
   "access-control-allow-credentials": "true",
   "access-control-allow-headers": "content-type",
   "access-control-allow-methods": "GET,POST,OPTIONS",
-  "access-control-allow-origin": env.FRONTEND_BASE_URL,
+  "access-control-allow-origin": allowedOrigin,
   vary: "Origin",
-} as const;
+  } as const;
+}
 
 const publicRoutes: Array<{ method: string; pattern: RegExp }> = [
   { method: "GET", pattern: /^\/health$/ },
@@ -41,6 +52,7 @@ const publicRoutes: Array<{ method: string; pattern: RegExp }> = [
 const allowedOrigins = new Set([
   new URL(env.FRONTEND_BASE_URL).origin,
   new URL(env.APP_BASE_URL).origin,
+  ...deployedFrontendOrigins,
 ]);
 
 const unsafeMethods = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -108,7 +120,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "OPTIONS") {
     sendResponse(
       res,
-      createJsonResponse(204, { ok: true }, { ...corsHeaders }),
+      createJsonResponse(204, { ok: true }, { ...buildCorsHeaders(req.headers.origin) }),
     );
     return;
   }
@@ -138,7 +150,7 @@ const server = http.createServer(async (req, res) => {
     sendResponse(res, {
       ...originError,
       headers: {
-        ...corsHeaders,
+        ...buildCorsHeaders(req.headers.origin),
         ...originError.headers,
       },
     });
@@ -154,7 +166,7 @@ const server = http.createServer(async (req, res) => {
         {
           ...authResponse,
           headers: {
-            ...corsHeaders,
+            ...buildCorsHeaders(req.headers.origin),
             ...authResponse.headers,
           },
         },
@@ -173,7 +185,7 @@ const server = http.createServer(async (req, res) => {
   sendResponse(res, {
     ...response,
     headers: {
-      ...corsHeaders,
+      ...buildCorsHeaders(req.headers.origin),
       ...response.headers,
     },
   });

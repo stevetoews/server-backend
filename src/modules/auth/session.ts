@@ -4,7 +4,18 @@ import { env } from "../../config/env.js";
 
 const SESSION_COOKIE_NAME = "server_agent_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 12;
-const COOKIE_BASE_ATTRIBUTES = ["Path=/", "HttpOnly", "SameSite=Lax"];
+
+function getCookieBaseAttributes(): string[] {
+  const attributes = ["Path=/", "HttpOnly"];
+
+  if (env.NODE_ENV === "production") {
+    attributes.push("SameSite=None", "Secure");
+    return attributes;
+  }
+
+  attributes.push("SameSite=Lax");
+  return attributes;
+}
 
 function sign(payload: string): string {
   return createHmac("sha256", env.SESSION_SECRET).update(payload).digest("hex");
@@ -21,21 +32,13 @@ export function createSessionCookie(userId: string): string {
   const payload = `${userId}.${issuedAt}`;
   const signature = sign(payload);
   const value = `${payload}.${signature}`;
-  const attributes = [...COOKIE_BASE_ATTRIBUTES, `Max-Age=${SESSION_TTL_SECONDS}`];
-
-  if (env.NODE_ENV === "production") {
-    attributes.push("Secure");
-  }
+  const attributes = [...getCookieBaseAttributes(), `Max-Age=${SESSION_TTL_SECONDS}`];
 
   return `${SESSION_COOKIE_NAME}=${value}; ${attributes.join("; ")}`;
 }
 
 export function createExpiredSessionCookie(): string {
-  const attributes = [...COOKIE_BASE_ATTRIBUTES, "Max-Age=0"];
-
-  if (env.NODE_ENV === "production") {
-    attributes.push("Secure");
-  }
+  const attributes = [...getCookieBaseAttributes(), "Max-Age=0"];
 
   return `${SESSION_COOKIE_NAME}=; ${attributes.join("; ")}`;
 }
