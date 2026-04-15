@@ -5,11 +5,13 @@ import { env } from "./config/env.js";
 import { runMigrations } from "./db/migrations.js";
 import {
   type AppRoute,
+  createErrorResponse,
   createJsonResponse,
   createNotFoundResponse,
   type RequestContext,
   sendResponse,
 } from "./lib/http.js";
+import { getUserById } from "./db/repositories/users.js";
 import { healthRoutes } from "./routes/health.js";
 import { authRoutes } from "./routes/auth.js";
 import { activityRoutes } from "./routes/activity.js";
@@ -20,6 +22,7 @@ import { notificationRoutes } from "./routes/notifications.js";
 import { serverRoutes } from "./routes/servers.js";
 import { ensureBootstrapAdmin } from "./db/repositories/users.js";
 import { ensureNotificationTarget } from "./db/repositories/notification-targets.js";
+import { readSessionUserId } from "./modules/auth/session.js";
 
 const corsHeaders = {
   "access-control-allow-credentials": "true",
@@ -28,6 +31,67 @@ const corsHeaders = {
   "access-control-allow-origin": env.FRONTEND_BASE_URL,
   vary: "Origin",
 } as const;
+
+const publicRoutes: Array<{ method: string; pattern: RegExp }> = [
+  { method: "GET", pattern: /^\/health$/ },
+  { method: "POST", pattern: /^\/auth\/login$/ },
+  { method: "POST", pattern: /^\/auth\/logout$/ },
+];
+
+const allowedOrigins = new Set([
+  new URL(env.FRONTEND_BASE_URL).origin,
+  new URL(env.APP_BASE_URL).origin,
+]);
+
+const unsafeMethods = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+function isPublicRoute(method: string, pathname: string): boolean {
+  return publicRoutes.some((route) => route.method === method && route.pattern.test(pathname));
+}
+
+function isUnsafeMethod(method: string | undefined): boolean {
+  return Boolean(method && unsafeMethods.has(method));
+}
+
+function isAllowedOrigin(origin: string | undefined): boolean {
+  if (!origin) {
+    return true;
+  }
+
+  return allowedOrigins.has(origin);
+}
+
+async function requireAuthenticatedAdmin(context: RequestContext) {
+  const userId = readSessionUserId(context.req.headers.cookie);
+
+  if (!userId) {
+    return createErrorResponse(401, {
+      code: "UNAUTHENTICATED",
+      message: "Authentication is required",
+      requestId: context.requestId,
+    });
+  }
+
+  const user = await getUserById(userId);
+
+  if (!user) {
+    return createErrorResponse(401, {
+      code: "UNAUTHENTICATED",
+      message: "Session was not valid",
+      requestId: context.requestId,
+    });
+  }
+
+  if (user.role !== "admin") {
+    return createErrorResponse(403, {
+      code: "FORBIDDEN",
+      message: "Admin access is required",
+      requestId: context.requestId,
+    });
+  }
+
+  return null;
+}
 
 const routes: AppRoute[] = [
   ...healthRoutes,
@@ -63,6 +127,41 @@ const server = http.createServer(async (req, res) => {
 
     return route.pattern.test(requestUrl.pathname);
   });
+
+  if (matchedRoute && isUnsafeMethod(req.method) && !isAllowedOrigin(req.headers.origin)) {
+    const originError = createErrorResponse(403, {
+      code: "INVALID_ORIGIN",
+      message: "Requests must originate from the configured frontend",
+      requestId: context.requestId,
+    });
+
+    sendResponse(res, {
+      ...originError,
+      headers: {
+        ...corsHeaders,
+        ...originError.headers,
+      },
+    });
+    return;
+  }
+
+  if (matchedRoute && !isPublicRoute(req.method ?? "GET", requestUrl.pathname)) {
+    const authResponse = await requireAuthenticatedAdmin(context);
+
+    if (authResponse) {
+      sendResponse(
+        res,
+        {
+          ...authResponse,
+          headers: {
+            ...corsHeaders,
+            ...authResponse.headers,
+          },
+        },
+      );
+      return;
+    }
+  }
 
   const response = matchedRoute
     ? await matchedRoute.handler(context)

@@ -7,11 +7,13 @@ import { getDbClient } from "../client.js";
 
 export interface AuthUser {
   email: string;
+  createdAt: string;
   id: string;
   role: string;
 }
 
 interface UserRow {
+  created_at: string;
   email: string;
   id: string;
   password_hash: string;
@@ -46,6 +48,7 @@ function mapAuthUser(row: UserRow): AuthUser {
     id: row.id,
     email: row.email,
     role: row.role,
+    createdAt: row.created_at,
   };
 }
 
@@ -54,6 +57,7 @@ export async function ensureBootstrapAdmin(): Promise<AuthUser> {
   const existing = await db.execute({
     sql: `
       SELECT id, email, password_hash, role
+        , created_at
       FROM users
       WHERE email = ?
       LIMIT 1
@@ -90,6 +94,7 @@ export async function ensureBootstrapAdmin(): Promise<AuthUser> {
     id,
     email: env.BOOTSTRAP_ADMIN_EMAIL,
     role: "admin",
+    createdAt: timestamp,
   };
 }
 
@@ -122,6 +127,7 @@ export async function getUserById(id: string): Promise<AuthUser | null> {
   const result = await db.execute({
     sql: `
       SELECT id, email, password_hash, role
+        , created_at
       FROM users
       WHERE id = ?
       LIMIT 1

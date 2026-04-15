@@ -4,9 +4,16 @@ import { env } from "../../config/env.js";
 
 const SESSION_COOKIE_NAME = "server_agent_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 12;
+const COOKIE_BASE_ATTRIBUTES = ["Path=/", "HttpOnly", "SameSite=Lax"];
 
 function sign(payload: string): string {
   return createHmac("sha256", env.SESSION_SECRET).update(payload).digest("hex");
+}
+
+export interface SessionInfo {
+  expiresAt: string;
+  issuedAt: string;
+  userId: string;
 }
 
 export function createSessionCookie(userId: string): string {
@@ -14,15 +21,30 @@ export function createSessionCookie(userId: string): string {
   const payload = `${userId}.${issuedAt}`;
   const signature = sign(payload);
   const value = `${payload}.${signature}`;
+  const attributes = [...COOKIE_BASE_ATTRIBUTES, `Max-Age=${SESSION_TTL_SECONDS}`];
 
-  return `${SESSION_COOKIE_NAME}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_TTL_SECONDS}`;
+  if (env.NODE_ENV === "production") {
+    attributes.push("Secure");
+  }
+
+  return `${SESSION_COOKIE_NAME}=${value}; ${attributes.join("; ")}`;
 }
 
 export function createExpiredSessionCookie(): string {
-  return `${SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
+  const attributes = [...COOKIE_BASE_ATTRIBUTES, "Max-Age=0"];
+
+  if (env.NODE_ENV === "production") {
+    attributes.push("Secure");
+  }
+
+  return `${SESSION_COOKIE_NAME}=; ${attributes.join("; ")}`;
 }
 
 export function readSessionUserId(cookieHeader: string | undefined): string | null {
+  return readSessionInfo(cookieHeader)?.userId ?? null;
+}
+
+export function readSessionInfo(cookieHeader: string | undefined): SessionInfo | null {
   if (!cookieHeader) {
     return null;
   }
@@ -70,9 +92,13 @@ export function readSessionUserId(cookieHeader: string | undefined): string | nu
 
   const age = Math.floor(Date.now() / 1000) - issuedAtSeconds;
 
-  if (age > SESSION_TTL_SECONDS) {
+  if (age < 0 || age > SESSION_TTL_SECONDS) {
     return null;
   }
 
-  return userId;
+  return {
+    userId,
+    issuedAt: new Date(issuedAtSeconds * 1000).toISOString(),
+    expiresAt: new Date((issuedAtSeconds + SESSION_TTL_SECONDS) * 1000).toISOString(),
+  };
 }
