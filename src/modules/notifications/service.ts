@@ -19,6 +19,12 @@ interface TransportResult {
   transportKind: "smtp" | "simulated";
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 function getNotificationFromAddress(): string {
   return env.NOTIFICATION_FROM_ADDRESS ?? env.BOOTSTRAP_ADMIN_EMAIL;
 }
@@ -36,10 +42,55 @@ function buildSmtpTransport() {
             user: env.NOTIFICATION_SMTP_USER ?? "",
           }
         : undefined,
+    connectionTimeout: 10_000,
     host: env.NOTIFICATION_SMTP_HOST,
+    greetingTimeout: 10_000,
     port: env.NOTIFICATION_SMTP_PORT ?? 587,
     secure: env.NOTIFICATION_SMTP_SECURE ?? false,
+    socketTimeout: 15_000,
   });
+}
+
+async function sendMailWithRetry(
+  transport: nodemailer.Transporter,
+  payload: {
+    from: string;
+    subject: string;
+    text: string;
+    to: string;
+  },
+): Promise<TransportResult> {
+  const attempts = 3;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const info = await transport.sendMail(payload);
+
+      return {
+        responseText: info.response || info.messageId || "SMTP delivery accepted",
+        transportKind: "smtp",
+      };
+    } catch (error) {
+      if (attempt === attempts) {
+        throw error;
+      }
+
+      console.log(
+        JSON.stringify({
+          scope: "notification",
+          transport: "smtp",
+          attempt,
+          retrying: true,
+          error: error instanceof Error ? error.message : "SMTP delivery failed",
+          to: payload.to,
+        }),
+      );
+
+      await sleep(500 * attempt);
+    }
+  }
+
+  throw new Error("SMTP delivery failed");
 }
 
 async function deliverToEmailTarget(
@@ -69,17 +120,12 @@ async function deliverToEmailTarget(
     };
   }
 
-  const info = await transport.sendMail({
+  return sendMailWithRetry(transport, {
     from: getNotificationFromAddress(),
     subject: input.subject,
     text: input.bodyText,
     to: target.address,
   });
-
-  return {
-    responseText: info.response || info.messageId || "SMTP delivery accepted",
-    transportKind: "smtp",
-  };
 }
 
 async function persistDeliveryAttempt(input: {
