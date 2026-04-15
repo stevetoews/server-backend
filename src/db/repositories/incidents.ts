@@ -160,6 +160,17 @@ export async function listIncidents(
   return result.rows.map((row) => mapIncidentRow(row as Record<string, unknown>));
 }
 
+export async function countIncidents(): Promise<number> {
+  const db = getDbClient();
+  const result = await db.execute(`
+    SELECT COUNT(*) AS total
+    FROM incidents
+  `);
+
+  const row = result.rows[0] as Record<string, unknown> | undefined;
+  return row ? Number(row.total ?? 0) : 0;
+}
+
 export async function listIncidentsByServerId(
   serverId: string,
   limit = 20,
@@ -179,6 +190,21 @@ export async function listIncidentsByServerId(
   });
 
   return result.rows.map((row) => mapIncidentRow(row as Record<string, unknown>));
+}
+
+export async function countIncidentsByServerId(serverId: string): Promise<number> {
+  const db = getDbClient();
+  const result = await db.execute({
+    sql: `
+      SELECT COUNT(*) AS total
+      FROM incidents
+      WHERE server_id = ?
+    `,
+    args: [serverId],
+  });
+
+  const row = result.rows[0] as Record<string, unknown> | undefined;
+  return row ? Number(row.total ?? 0) : 0;
 }
 
 export async function getIncidentById(id: string): Promise<IncidentRecord | null> {

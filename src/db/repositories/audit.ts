@@ -112,3 +112,33 @@ export async function listAuditLogs(input?: {
 
   return result.rows.map((row) => mapAuditLogRow(row as Record<string, unknown>));
 }
+
+export async function countAuditLogs(input?: {
+  targetId?: string;
+  targetType?: string;
+}): Promise<number> {
+  const db = getDbClient();
+
+  if (input?.targetType && input?.targetId) {
+    const result = await db.execute({
+      sql: `
+        SELECT COUNT(*) AS total
+        FROM audit_logs
+        WHERE target_type = ?
+          AND target_id = ?
+      `,
+      args: [input.targetType, input.targetId],
+    });
+
+    const row = result.rows[0] as Record<string, unknown> | undefined;
+    return row ? Number(row.total ?? 0) : 0;
+  }
+
+  const result = await db.execute(`
+    SELECT COUNT(*) AS total
+    FROM audit_logs
+  `);
+
+  const row = result.rows[0] as Record<string, unknown> | undefined;
+  return row ? Number(row.total ?? 0) : 0;
+}

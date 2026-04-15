@@ -3,6 +3,7 @@ export interface PaginationMeta {
   limit: number;
   offset: number;
   returned: number;
+  total: number;
 }
 
 export function parseBoundedInt(value: string | null, fallback: number, min: number, max: number): number {
@@ -17,6 +18,7 @@ export function paginateOffsetQuery<TItem>(
   items: TItem[],
   limit: number,
   offset = 0,
+  total = items.length,
 ): {
   items: TItem[];
   pagination: PaginationMeta;
@@ -29,7 +31,8 @@ export function paginateOffsetQuery<TItem>(
       limit,
       offset,
       returned: pageItems.length,
-      hasMore: items.length > limit,
+      hasMore: total > offset + limit,
+      total,
     },
   };
 }
@@ -38,6 +41,7 @@ export function paginateWindow<TItem>(
   items: TItem[],
   limit: number,
   offset: number,
+  total = items.length,
 ): {
   items: TItem[];
   pagination: PaginationMeta;
@@ -50,7 +54,8 @@ export function paginateWindow<TItem>(
       limit,
       offset,
       returned: pageItems.length,
-      hasMore: items.length > offset + limit,
+      hasMore: total > offset + limit,
+      total,
     },
   };
 }

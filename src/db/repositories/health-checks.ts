@@ -118,3 +118,18 @@ export async function listRecentHealthChecksByServerId(
 
   return result.rows.map((row) => mapHealthCheckRow(row as Record<string, unknown>));
 }
+
+export async function countHealthChecksByServerId(serverId: string): Promise<number> {
+  const db = getDbClient();
+  const result = await db.execute({
+    sql: `
+      SELECT COUNT(*) AS total
+      FROM health_checks
+      WHERE server_id = ?
+    `,
+    args: [serverId],
+  });
+
+  const row = result.rows[0] as Record<string, unknown> | undefined;
+  return row ? Number(row.total ?? 0) : 0;
+}

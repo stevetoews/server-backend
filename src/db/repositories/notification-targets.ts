@@ -93,6 +93,39 @@ export async function listNotificationTargetsWithQuery(input?: {
   return result.rows.map((row) => mapNotificationTargetRow(row as Record<string, unknown>));
 }
 
+export async function countNotificationTargetsWithQuery(input?: {
+  channel?: NotificationTargetRecord["channel"];
+  enabled?: boolean;
+}): Promise<number> {
+  const db = getDbClient();
+  const conditions: string[] = [];
+  const args: Array<string | number> = [];
+
+  if (input?.channel) {
+    conditions.push("channel = ?");
+    args.push(input.channel);
+  }
+
+  if (input?.enabled !== undefined) {
+    conditions.push("enabled = ?");
+    args.push(input.enabled ? 1 : 0);
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  const result = await db.execute({
+    sql: `
+      SELECT COUNT(*) AS total
+      FROM notification_targets
+      ${whereClause}
+    `,
+    args,
+  });
+
+  const row = result.rows[0] as Record<string, unknown> | undefined;
+  return row ? Number(row.total ?? 0) : 0;
+}
+
 export async function listEnabledNotificationTargets(): Promise<NotificationTargetRecord[]> {
   const db = getDbClient();
   const result = await db.execute(`

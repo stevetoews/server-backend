@@ -2,6 +2,8 @@ import { z } from "zod";
 
 import {
   type IncidentRecord,
+  countIncidents,
+  countIncidentsByServerId,
   getIncidentById,
   listIncidents,
   listIncidentsByServerId,
@@ -10,6 +12,7 @@ import {
 import {
   completeRemediationRun,
   createRemediationRun,
+  countRemediationRunsByServerId,
   listRemediationRunsByServerId,
 } from "../db/repositories/remediation-runs.js";
 import { getServerById } from "../db/repositories/servers.js";
@@ -92,9 +95,12 @@ export const incidentRoutes: AppRoute[] = [
     handler: async (context) => {
       const limit = parseBoundedInt(context.url.searchParams.get("limit"), 25, 1, 100);
       const offset = parseBoundedInt(context.url.searchParams.get("offset"), 0, 0, 10_000);
-      const incidents = await listIncidents(limit + 1, offset);
+      const [incidents, total] = await Promise.all([
+        listIncidents(limit + 1, offset),
+        countIncidents(),
+      ]);
       const enrichedIncidents = await Promise.all(incidents.map((incident) => enrichIncident(incident)));
-      const page = paginateOffsetQuery(enrichedIncidents, limit, offset);
+      const page = paginateOffsetQuery(enrichedIncidents, limit, offset, total);
 
       return createJsonResponse(200, {
         ok: true,
@@ -124,9 +130,12 @@ export const incidentRoutes: AppRoute[] = [
         });
       }
 
-      const incidents = await listIncidentsByServerId(serverId, limit + 1, offset);
+      const [incidents, total] = await Promise.all([
+        listIncidentsByServerId(serverId, limit + 1, offset),
+        countIncidentsByServerId(serverId),
+      ]);
       const enrichedIncidents = await Promise.all(incidents.map((incident) => enrichIncident(incident)));
-      const page = paginateOffsetQuery(enrichedIncidents, limit, offset);
+      const page = paginateOffsetQuery(enrichedIncidents, limit, offset, total);
 
       return createJsonResponse(200, {
         ok: true,
@@ -156,8 +165,11 @@ export const incidentRoutes: AppRoute[] = [
         });
       }
 
-      const runs = await listRemediationRunsByServerId(serverId, limit + 1, offset);
-      const page = paginateOffsetQuery(runs, limit, offset);
+      const [runs, total] = await Promise.all([
+        listRemediationRunsByServerId(serverId, limit + 1, offset),
+        countRemediationRunsByServerId(serverId),
+      ]);
+      const page = paginateOffsetQuery(runs, limit, offset, total);
 
       return createJsonResponse(200, {
         ok: true,

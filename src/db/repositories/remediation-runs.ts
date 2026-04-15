@@ -151,3 +151,18 @@ export async function listRemediationRunsByServerId(
 
   return result.rows.map((row) => mapRemediationRunRow(row as Record<string, unknown>));
 }
+
+export async function countRemediationRunsByServerId(serverId: string): Promise<number> {
+  const db = getDbClient();
+  const result = await db.execute({
+    sql: `
+      SELECT COUNT(*) AS total
+      FROM remediation_runs
+      WHERE server_id = ?
+    `,
+    args: [serverId],
+  });
+
+  const row = result.rows[0] as Record<string, unknown> | undefined;
+  return row ? Number(row.total ?? 0) : 0;
+}

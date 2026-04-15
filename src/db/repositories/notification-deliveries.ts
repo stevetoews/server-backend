@@ -188,3 +188,61 @@ export async function listNotificationDeliveries(
 
   return result.rows.map((row) => mapNotificationDeliveryRow(row as Record<string, unknown>));
 }
+
+export async function countNotificationDeliveries(input?: {
+  eventType?: string;
+  targetId?: string;
+}): Promise<number> {
+  const db = getDbClient();
+
+  if (input?.targetId && input?.eventType) {
+    const result = await db.execute({
+      sql: `
+        SELECT COUNT(*) AS total
+        FROM notification_deliveries
+        WHERE target_id = ?
+          AND event_type = ?
+      `,
+      args: [input.targetId, input.eventType],
+    });
+
+    const row = result.rows[0] as Record<string, unknown> | undefined;
+    return row ? Number(row.total ?? 0) : 0;
+  }
+
+  if (input?.targetId) {
+    const result = await db.execute({
+      sql: `
+        SELECT COUNT(*) AS total
+        FROM notification_deliveries
+        WHERE target_id = ?
+      `,
+      args: [input.targetId],
+    });
+
+    const row = result.rows[0] as Record<string, unknown> | undefined;
+    return row ? Number(row.total ?? 0) : 0;
+  }
+
+  if (input?.eventType) {
+    const result = await db.execute({
+      sql: `
+        SELECT COUNT(*) AS total
+        FROM notification_deliveries
+        WHERE event_type = ?
+      `,
+      args: [input.eventType],
+    });
+
+    const row = result.rows[0] as Record<string, unknown> | undefined;
+    return row ? Number(row.total ?? 0) : 0;
+  }
+
+  const result = await db.execute(`
+    SELECT COUNT(*) AS total
+    FROM notification_deliveries
+  `);
+
+  const row = result.rows[0] as Record<string, unknown> | undefined;
+  return row ? Number(row.total ?? 0) : 0;
+}

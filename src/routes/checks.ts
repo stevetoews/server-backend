@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { listRecentHealthChecksByServerId } from "../db/repositories/health-checks.js";
+import { countHealthChecksByServerId, listRecentHealthChecksByServerId } from "../db/repositories/health-checks.js";
 import { getServerById } from "../db/repositories/servers.js";
 import { createJsonResponse, createValidationErrorResponse, readJsonBody, type AppRoute } from "../lib/http.js";
 import { paginateOffsetQuery, parseBoundedInt } from "../lib/pagination.js";
@@ -30,8 +30,11 @@ export const checkRoutes: AppRoute[] = [
         });
       }
 
-      const checks = await listRecentHealthChecksByServerId(serverId, limit + 1, offset);
-      const page = paginateOffsetQuery(checks, limit, offset);
+      const [checks, total] = await Promise.all([
+        listRecentHealthChecksByServerId(serverId, limit + 1, offset),
+        countHealthChecksByServerId(serverId),
+      ]);
+      const page = paginateOffsetQuery(checks, limit, offset, total);
 
       return createJsonResponse(200, {
         ok: true,

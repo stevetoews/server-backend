@@ -4,10 +4,14 @@ import {
   createNotificationTarget,
   deleteNotificationTarget,
   getNotificationTargetById,
+  countNotificationTargetsWithQuery,
   listNotificationTargetsWithQuery,
   updateNotificationTarget,
 } from "../db/repositories/notification-targets.js";
-import { listNotificationDeliveries } from "../db/repositories/notification-deliveries.js";
+import {
+  countNotificationDeliveries,
+  listNotificationDeliveries,
+} from "../db/repositories/notification-deliveries.js";
 import {
   createJsonResponse,
   createValidationErrorResponse,
@@ -37,17 +41,23 @@ export const notificationRoutes: AppRoute[] = [
     handler: async (context) => {
       const limit = parseBoundedInt(context.url.searchParams.get("limit"), 50, 1, 100);
       const offset = parseBoundedInt(context.url.searchParams.get("offset"), 0, 0, 10_000);
-      const targets = await listNotificationTargetsWithQuery({
+      const filter = {
         ...(context.url.searchParams.get("channel") === "email"
           ? { channel: "email" as const }
           : {}),
         ...(context.url.searchParams.get("enabled") === null
           ? {}
           : { enabled: context.url.searchParams.get("enabled") === "true" }),
-        limit: limit + 1,
-        offset,
-      });
-      const page = paginateOffsetQuery(targets, limit, offset);
+      };
+      const [targets, total] = await Promise.all([
+        listNotificationTargetsWithQuery({
+          ...filter,
+          limit: limit + 1,
+          offset,
+        }),
+        countNotificationTargetsWithQuery(filter),
+      ]);
+      const page = paginateOffsetQuery(targets, limit, offset, total);
 
       return createJsonResponse(200, {
         ok: true,
@@ -87,13 +97,19 @@ export const notificationRoutes: AppRoute[] = [
       const offset = parseBoundedInt(context.url.searchParams.get("offset"), 0, 0, 10_000);
       const targetId = context.url.searchParams.get("targetId") ?? undefined;
       const eventType = context.url.searchParams.get("eventType") ?? undefined;
-      const deliveries = await listNotificationDeliveries({
-        limit: limit + 1,
-        offset,
+      const filter = {
         ...(targetId ? { targetId } : {}),
         ...(eventType ? { eventType } : {}),
-      });
-      const page = paginateOffsetQuery(deliveries, limit, offset);
+      };
+      const [deliveries, total] = await Promise.all([
+        listNotificationDeliveries({
+          limit: limit + 1,
+          offset,
+          ...filter,
+        }),
+        countNotificationDeliveries(filter),
+      ]);
+      const page = paginateOffsetQuery(deliveries, limit, offset, total);
 
       return createJsonResponse(200, {
         ok: true,
@@ -134,12 +150,18 @@ export const notificationRoutes: AppRoute[] = [
         });
       }
 
-      const deliveries = await listNotificationDeliveries({
-        targetId,
-        eventType: "notification.test",
-        limit: 6,
-      });
-      const page = paginateOffsetQuery(deliveries, 5, 0);
+      const [deliveries, total] = await Promise.all([
+        listNotificationDeliveries({
+          targetId,
+          eventType: "notification.test",
+          limit: 6,
+        }),
+        countNotificationDeliveries({
+          targetId,
+          eventType: "notification.test",
+        }),
+      ]);
+      const page = paginateOffsetQuery(deliveries, 5, 0, total);
 
       return createJsonResponse(200, {
         ok: true,
