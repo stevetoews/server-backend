@@ -5,6 +5,7 @@ import {
   deleteNotificationTarget,
   getNotificationTargetById,
   countNotificationTargetsWithQuery,
+  getNotificationTargetByChannelAndAddress,
   listNotificationTargetsWithQuery,
   updateNotificationTarget,
 } from "../db/repositories/notification-targets.js";
@@ -79,7 +80,34 @@ export const notificationRoutes: AppRoute[] = [
         return createValidationErrorResponse(context.requestId, parsed.error.flatten());
       }
 
+      const existingTarget = await getNotificationTargetByChannelAndAddress({
+        channel: parsed.data.channel,
+        address: parsed.data.address,
+      });
+
+      if (existingTarget) {
+        return createJsonResponse(409, {
+          ok: false,
+          error: {
+            code: "NOTIFICATION_TARGET_ALREADY_EXISTS",
+            message: "A notification target already exists for this channel and address",
+            requestId: context.requestId,
+          },
+        });
+      }
+
       const target = await createNotificationTarget(parsed.data);
+
+      if (!target) {
+        return createJsonResponse(409, {
+          ok: false,
+          error: {
+            code: "NOTIFICATION_TARGET_ALREADY_EXISTS",
+            message: "A notification target already exists for this channel and address",
+            requestId: context.requestId,
+          },
+        });
+      }
 
       return createJsonResponse(201, {
         ok: true,

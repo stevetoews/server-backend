@@ -76,6 +76,7 @@ SQL migrations live in `migrations/`:
 - `004_incident_pending_status.sql`
 - `005_notifications.sql`
 - `006_notification_delivery_transport.sql`
+- `007_notification_targets_unique.sql`
 
 ## Notes
 

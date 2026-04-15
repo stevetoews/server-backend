@@ -168,36 +168,66 @@ export async function getNotificationTargetById(
   return row ? mapNotificationTargetRow(row as Record<string, unknown>) : null;
 }
 
+export async function getNotificationTargetByChannelAndAddress(input: {
+  address: string;
+  channel: NotificationTargetRecord["channel"];
+}): Promise<NotificationTargetRecord | null> {
+  const db = getDbClient();
+  const result = await db.execute({
+    sql: `
+      SELECT id, channel, label, address, enabled, created_at, updated_at
+      FROM notification_targets
+      WHERE channel = ?
+        AND address = ?
+      LIMIT 1
+    `,
+    args: [input.channel, input.address],
+  });
+
+  const row = result.rows[0];
+  return row ? mapNotificationTargetRow(row as Record<string, unknown>) : null;
+}
+
 export async function createNotificationTarget(
   input: CreateNotificationTargetInput,
-): Promise<NotificationTargetRecord> {
+): Promise<NotificationTargetRecord | null> {
   const db = getDbClient();
   const id = randomUUID();
   const timestamp = new Date().toISOString();
 
-  await db.execute({
-    sql: `
-      INSERT INTO notification_targets (
+  try {
+    await db.execute({
+      sql: `
+        INSERT INTO notification_targets (
+          id,
+          channel,
+          label,
+          address,
+          enabled,
+          created_at,
+          updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `,
+      args: [
         id,
-        channel,
-        label,
-        address,
-        enabled,
-        created_at,
-        updated_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `,
-    args: [
-      id,
-      input.channel,
-      input.label,
-      input.address,
-      input.enabled ? 1 : 0,
-      timestamp,
-      timestamp,
-    ],
-  } satisfies InStatement);
+        input.channel,
+        input.label,
+        input.address,
+        input.enabled ? 1 : 0,
+        timestamp,
+        timestamp,
+      ],
+    } satisfies InStatement);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    if (message.includes("idx_notification_targets_channel_address")) {
+      return null;
+    }
+
+    throw error;
+  }
 
   return {
     id,
@@ -215,30 +245,36 @@ export async function ensureNotificationTarget(input: {
   channel: NotificationTargetRecord["channel"];
   label: string;
 }): Promise<NotificationTargetRecord> {
-  const db = getDbClient();
-  const existing = await db.execute({
-    sql: `
-      SELECT id, channel, label, address, enabled, created_at, updated_at
-      FROM notification_targets
-      WHERE channel = ?
-        AND address = ?
-      LIMIT 1
-    `,
-    args: [input.channel, input.address],
+  const existing = await getNotificationTargetByChannelAndAddress({
+    address: input.address,
+    channel: input.channel,
   });
 
-  const row = existing.rows[0];
-
-  if (row) {
-    return mapNotificationTargetRow(row as Record<string, unknown>);
+  if (existing) {
+    return existing;
   }
 
-  return createNotificationTarget({
+  const created = await createNotificationTarget({
     address: input.address,
     channel: input.channel,
     enabled: true,
     label: input.label,
   });
+
+  if (!created) {
+    const target = await getNotificationTargetByChannelAndAddress({
+      address: input.address,
+      channel: input.channel,
+    });
+
+    if (!target) {
+      throw new Error("Notification target creation failed");
+    }
+
+    return target;
+  }
+
+  return created;
 }
 
 export async function updateNotificationTarget(
