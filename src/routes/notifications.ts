@@ -237,12 +237,51 @@ export const notificationRoutes: AppRoute[] = [
         });
       }
 
-      const target = await updateNotificationTarget({
-        id: targetId,
-        ...(parsed.data.label !== undefined ? { label: parsed.data.label } : {}),
-        ...(parsed.data.address !== undefined ? { address: parsed.data.address } : {}),
-        ...(parsed.data.enabled !== undefined ? { enabled: parsed.data.enabled } : {}),
-      });
+      const nextAddress = parsed.data.address ?? currentTarget.address;
+
+      if (nextAddress !== currentTarget.address) {
+        const duplicateTarget = await getNotificationTargetByChannelAndAddress({
+          channel: currentTarget.channel,
+          address: nextAddress,
+        });
+
+        if (duplicateTarget && duplicateTarget.id !== currentTarget.id) {
+          return createJsonResponse(409, {
+            ok: false,
+            error: {
+              code: "NOTIFICATION_TARGET_ALREADY_EXISTS",
+              message: "A notification target already exists for this channel and address",
+              requestId: context.requestId,
+            },
+          });
+        }
+      }
+
+      let target;
+
+      try {
+        target = await updateNotificationTarget({
+          id: targetId,
+          ...(parsed.data.label !== undefined ? { label: parsed.data.label } : {}),
+          ...(parsed.data.address !== undefined ? { address: parsed.data.address } : {}),
+          ...(parsed.data.enabled !== undefined ? { enabled: parsed.data.enabled } : {}),
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+
+        if (message.includes("idx_notification_targets_channel_address")) {
+          return createJsonResponse(409, {
+            ok: false,
+            error: {
+              code: "NOTIFICATION_TARGET_ALREADY_EXISTS",
+              message: "A notification target already exists for this channel and address",
+              requestId: context.requestId,
+            },
+          });
+        }
+
+        throw error;
+      }
 
       if (!target) {
         return createJsonResponse(404, {
