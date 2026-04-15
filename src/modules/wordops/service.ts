@@ -27,6 +27,7 @@ export interface WordopsOverview {
 }
 
 export interface WordopsMutationResult {
+  commandText: string;
   output: string;
   status: "succeeded" | "failed";
 }
@@ -254,6 +255,7 @@ async function executeWordopsMutation(serverId: string, commandParts: string[]):
   const output = [execution.stdout, execution.stderr].filter(Boolean).join("\n").trim();
 
   return {
+    commandText: command,
     output: output || command,
     status: execution.exitCode === 0 ? "succeeded" : "failed",
   };
