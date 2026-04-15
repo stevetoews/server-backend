@@ -12,11 +12,14 @@ import {
 } from "./lib/http.js";
 import { healthRoutes } from "./routes/health.js";
 import { authRoutes } from "./routes/auth.js";
+import { activityRoutes } from "./routes/activity.js";
 import { checkRoutes } from "./routes/checks.js";
 import { incidentRoutes } from "./routes/incidents.js";
 import { integrationRoutes } from "./routes/integrations.js";
+import { notificationRoutes } from "./routes/notifications.js";
 import { serverRoutes } from "./routes/servers.js";
 import { ensureBootstrapAdmin } from "./db/repositories/users.js";
+import { ensureNotificationTarget } from "./db/repositories/notification-targets.js";
 
 const corsHeaders = {
   "access-control-allow-credentials": "true",
@@ -29,10 +32,12 @@ const corsHeaders = {
 const routes: AppRoute[] = [
   ...healthRoutes,
   ...authRoutes,
+  ...activityRoutes,
   ...checkRoutes,
   ...incidentRoutes,
   ...serverRoutes,
   ...integrationRoutes,
+  ...notificationRoutes,
 ];
 
 const server = http.createServer(async (req, res) => {
@@ -78,6 +83,11 @@ const server = http.createServer(async (req, res) => {
 async function bootstrap(): Promise<void> {
   const appliedMigrations = await runMigrations();
   const bootstrapAdmin = await ensureBootstrapAdmin();
+  const bootstrapNotificationTarget = await ensureNotificationTarget({
+    channel: "email",
+    label: "Bootstrap Admin",
+    address: bootstrapAdmin.email,
+  });
 
   server.listen(env.PORT, () => {
     const payload = createJsonResponse(200, {
@@ -87,6 +97,7 @@ async function bootstrap(): Promise<void> {
       environment: env.NODE_ENV,
       appliedMigrations,
       bootstrapAdminEmail: bootstrapAdmin.email,
+      bootstrapNotificationTargetId: bootstrapNotificationTarget.id,
     });
 
     // Keep startup logging structured for Render and local process managers.

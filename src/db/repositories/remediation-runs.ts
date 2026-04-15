@@ -122,6 +122,7 @@ export async function completeRemediationRun(input: {
 export async function listRemediationRunsByServerId(
   serverId: string,
   limit = 20,
+  offset = 0,
 ): Promise<RemediationRunRecord[]> {
   const db = getDbClient();
   const result = await db.execute({
@@ -143,8 +144,9 @@ export async function listRemediationRunsByServerId(
       WHERE server_id = ?
       ORDER BY started_at DESC
       LIMIT ?
+      OFFSET ?
     `,
-    args: [serverId, limit],
+    args: [serverId, limit, offset],
   });
 
   return result.rows.map((row) => mapRemediationRunRow(row as Record<string, unknown>));

@@ -101,8 +101,15 @@ export async function verifySchemaReady(): Promise<boolean> {
     SELECT name
     FROM sqlite_master
     WHERE type = 'table'
-      AND name IN ('schema_migrations', 'servers', 'integrations', 'audit_logs')
+      AND name IN (
+        'schema_migrations',
+        'servers',
+        'integrations',
+        'audit_logs',
+        'notification_targets',
+        'notification_deliveries'
+      )
   `);
 
-  return result.rows.length === 4;
+  return result.rows.length === 6;
 }

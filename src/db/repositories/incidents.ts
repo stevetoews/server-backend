@@ -141,7 +141,10 @@ export async function markIncidentRemediationPending(id: string): Promise<void> 
   });
 }
 
-export async function listIncidents(limit = 20): Promise<IncidentRecord[]> {
+export async function listIncidents(
+  limit = 20,
+  offset = 0,
+): Promise<IncidentRecord[]> {
   const db = getDbClient();
   const result = await db.execute({
     sql: `
@@ -149,8 +152,9 @@ export async function listIncidents(limit = 20): Promise<IncidentRecord[]> {
       FROM incidents
       ORDER BY opened_at DESC
       LIMIT ?
+      OFFSET ?
     `,
-    args: [limit],
+    args: [limit, offset],
   });
 
   return result.rows.map((row) => mapIncidentRow(row as Record<string, unknown>));
@@ -159,6 +163,7 @@ export async function listIncidents(limit = 20): Promise<IncidentRecord[]> {
 export async function listIncidentsByServerId(
   serverId: string,
   limit = 20,
+  offset = 0,
 ): Promise<IncidentRecord[]> {
   const db = getDbClient();
   const result = await db.execute({
@@ -168,8 +173,9 @@ export async function listIncidentsByServerId(
       WHERE server_id = ?
       ORDER BY opened_at DESC
       LIMIT ?
+      OFFSET ?
     `,
-    args: [serverId, limit],
+    args: [serverId, limit, offset],
   });
 
   return result.rows.map((row) => mapIncidentRow(row as Record<string, unknown>));

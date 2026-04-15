@@ -4,12 +4,12 @@ Node.js 22+ TypeScript API and worker scaffold for the internal server maintenan
 
 ## Current scope
 
-- REST endpoints for health, servers, and integrations
+- REST endpoints for health, servers, integrations, and notifications
 - Turso/libSQL client bootstrap
 - SSH-first onboarding flow scaffold
 - Linode and DigitalOcean provider matching scaffold
 - SpinupWP adapter placeholder for post-match mapping
-- Deterministic checks, policy engine, and audit logging scaffolds
+- Deterministic checks, policy engine, audit logging, and notification scaffolds
 
 ## Product constraints baked into v1
 
@@ -29,6 +29,7 @@ Copy `.env.example` to `.env` and provide real values:
 - `TURSO_AUTH_TOKEN`
 - `SESSION_SECRET`
 - optional provider tokens for Linode, DigitalOcean, and SpinupWP
+- optional SMTP settings for notification delivery
 
 ## Scripts
 
@@ -45,6 +46,15 @@ Copy `.env.example` to `.env` and provide real values:
 - `POST /servers/:id/activate`
 - `GET /integrations`
 - `POST /integrations`
+- `GET /notifications/targets`
+- `POST /notifications/targets`
+- `POST /notifications/targets/:id`
+- `GET /notifications/deliveries`
+- `POST /notifications/targets/:id/test`
+- `POST /notifications/targets/:id/delete`
+- `GET /audit/logs`
+- `GET /activity`
+- `GET /servers/:id/activity`
 
 ## Onboarding flow reflected in the server route
 
@@ -62,8 +72,13 @@ SQL migrations live in `migrations/`:
 
 - `001_initial.sql`
 - `002_indexes.sql`
+- `003_incident_check_type.sql`
+- `004_incident_pending_status.sql`
+- `005_notifications.sql`
+- `006_notification_delivery_transport.sql`
 
 ## Notes
 
 - Provider adapters return mocked data for now but are structured for real API integration.
 - The in-memory route storage is intentionally temporary and should be replaced by repository modules backed by Turso.
+- Notification delivery uses SMTP when configured and falls back to simulated delivery in local/dev environments.

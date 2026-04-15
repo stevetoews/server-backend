@@ -6,6 +6,7 @@ import {
   updateIncidentSummary,
 } from "../../db/repositories/incidents.js";
 import { writeAuditEvent } from "../audit/logger.js";
+import { notifyEvent } from "../notifications/service.js";
 import { listActiveMonitoredServers } from "../../db/repositories/servers.js";
 import type { ServerRecord } from "../contracts/server.js";
 import { checkCatalog } from "./catalog.js";
@@ -110,6 +111,11 @@ async function syncIncidentForCheck(check: HealthCheckRecord): Promise<void> {
           serverId: check.serverId,
         },
       });
+      await notifyEvent({
+        eventType: "incident.resolved",
+        subject: `Incident resolved on ${check.serverId}`,
+        bodyText: `${check.checkType} returned to healthy state for server ${check.serverId}. Summary: ${check.summary}`,
+      });
     }
 
     return;
@@ -142,6 +148,11 @@ async function syncIncidentForCheck(check: HealthCheckRecord): Promise<void> {
       serverId: check.serverId,
       severity: incident.severity,
     },
+  });
+  await notifyEvent({
+    eventType: "incident.opened",
+    subject: `${incident.severity.toUpperCase()} incident on ${incident.serverId}`,
+    bodyText: `${incident.title}\n\n${incident.summary ?? "No summary"}\n\nCheck type: ${incident.checkType ?? "unknown"}`,
   });
 }
 

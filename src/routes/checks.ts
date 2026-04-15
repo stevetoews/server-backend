@@ -3,6 +3,7 @@ import { z } from "zod";
 import { listRecentHealthChecksByServerId } from "../db/repositories/health-checks.js";
 import { getServerById } from "../db/repositories/servers.js";
 import { createJsonResponse, createValidationErrorResponse, readJsonBody, type AppRoute } from "../lib/http.js";
+import { paginateOffsetQuery, parseBoundedInt } from "../lib/pagination.js";
 import { runChecksForAllActiveServers, runChecksForServer } from "../modules/checks/service.js";
 
 const runChecksSchema = z.object({
@@ -15,6 +16,8 @@ export const checkRoutes: AppRoute[] = [
     pattern: /^\/servers\/[^/]+\/checks$/,
     handler: async (context) => {
       const serverId = context.url.pathname.split("/")[2];
+      const limit = parseBoundedInt(context.url.searchParams.get("limit"), 12, 1, 100);
+      const offset = parseBoundedInt(context.url.searchParams.get("offset"), 0, 0, 10_000);
 
       if (!serverId) {
         return createJsonResponse(400, {
@@ -27,12 +30,14 @@ export const checkRoutes: AppRoute[] = [
         });
       }
 
-      const checks = await listRecentHealthChecksByServerId(serverId, 12);
+      const checks = await listRecentHealthChecksByServerId(serverId, limit + 1, offset);
+      const page = paginateOffsetQuery(checks, limit, offset);
 
       return createJsonResponse(200, {
         ok: true,
         data: {
-          checks,
+          checks: page.items,
+          pagination: page.pagination,
         },
       });
     },

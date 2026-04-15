@@ -93,6 +93,7 @@ export async function insertHealthCheck(input: {
 export async function listRecentHealthChecksByServerId(
   serverId: string,
   limit = 10,
+  offset = 0,
 ): Promise<HealthCheckRecord[]> {
   const db = getDbClient();
   const result = await db.execute({
@@ -110,8 +111,9 @@ export async function listRecentHealthChecksByServerId(
       WHERE server_id = ?
       ORDER BY created_at DESC
       LIMIT ?
+      OFFSET ?
     `,
-    args: [serverId, limit],
+    args: [serverId, limit, offset],
   });
 
   return result.rows.map((row) => mapHealthCheckRow(row as Record<string, unknown>));

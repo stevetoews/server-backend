@@ -2,6 +2,28 @@ import "dotenv/config";
 
 import { z } from "zod";
 
+function emptyStringToUndefined<TValue>(schema: z.ZodType<TValue>) {
+  return z.preprocess((value) => (value === "" ? undefined : value), schema.optional());
+}
+
+function parseOptionalBoolean() {
+  return z.preprocess((value) => {
+    if (value === "" || value === undefined || value === null) {
+      return undefined;
+    }
+
+    if (value === "true" || value === "1") {
+      return true;
+    }
+
+    if (value === "false" || value === "0") {
+      return false;
+    }
+
+    return value;
+  }, z.boolean().optional());
+}
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(4000),
@@ -21,6 +43,18 @@ const envSchema = z.object({
   LINODE_API_TOKEN: z.string().optional(),
   DIGITALOCEAN_API_TOKEN: z.string().optional(),
   SPINUPWP_API_TOKEN: z.string().optional(),
+  NOTIFICATION_SMTP_HOST: emptyStringToUndefined(z.string()),
+  NOTIFICATION_SMTP_PORT: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.coerce.number().int().positive().optional(),
+  ),
+  NOTIFICATION_SMTP_SECURE: parseOptionalBoolean(),
+  NOTIFICATION_SMTP_USER: emptyStringToUndefined(z.string()),
+  NOTIFICATION_SMTP_PASSWORD: emptyStringToUndefined(z.string()),
+  NOTIFICATION_FROM_ADDRESS: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.string().email().optional(),
+  ),
 });
 
 const parsed = envSchema.safeParse(process.env);

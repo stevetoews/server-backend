@@ -1,11 +1,11 @@
 import { z } from "zod";
 
 import {
+  type IncidentRecord,
   getIncidentById,
   listIncidents,
   listIncidentsByServerId,
   markIncidentRemediationPending,
-  resolveIncident,
 } from "../db/repositories/incidents.js";
 import {
   completeRemediationRun,
@@ -15,25 +15,92 @@ import {
 import { getServerById } from "../db/repositories/servers.js";
 import { createJsonResponse, type AppRoute } from "../lib/http.js";
 import { createValidationErrorResponse, readJsonBody } from "../lib/http.js";
+import { paginateOffsetQuery, parseBoundedInt } from "../lib/pagination.js";
 import { writeAuditEvent } from "../modules/audit/logger.js";
-import { getRemediationActionsForCheckType } from "../modules/remediation/catalog.js";
+import {
+  getRemediationActionByType,
+  getRemediationActionsForCheckType,
+  type RemediationActionDefinition,
+} from "../modules/remediation/catalog.js";
+import { evaluateRemediationPolicy } from "../modules/policies/engine.js";
 import { executeRemediation } from "../modules/remediation/service.js";
+import { notifyEvent } from "../modules/notifications/service.js";
 
 const remediationSchema = z.object({
   actionType: z.string().min(1),
 });
 
+interface IncidentRemediationAction {
+  actionType: string;
+  provider: RemediationActionDefinition["provider"];
+  title: string;
+}
+
+interface EnrichedIncidentRecord extends IncidentRecord {
+  remediation: {
+    allowedActions: IncidentRemediationAction[];
+    reasons: string[];
+  };
+}
+
+async function enrichIncident(incident: IncidentRecord): Promise<EnrichedIncidentRecord> {
+  const server = await getServerById(incident.serverId);
+  const actions = getRemediationActionsForCheckType(incident.checkType);
+
+  if (!server) {
+    return {
+      ...incident,
+      remediation: {
+        allowedActions: [],
+        reasons: ["Server record is unavailable for remediation policy evaluation"],
+      },
+    };
+  }
+
+  const decisions = actions.map((action) =>
+    evaluateRemediationPolicy({
+      action,
+      incident,
+      server,
+    }),
+  );
+
+  return {
+    ...incident,
+    remediation: {
+      allowedActions: actions
+        .filter((action) =>
+          decisions.some(
+            (decision) =>
+              decision.action === "allow" && decision.actionType === action.actionType,
+          ),
+        )
+        .map((action) => ({
+          actionType: action.actionType,
+          provider: action.provider,
+          title: action.title,
+        })),
+      reasons: Array.from(new Set(decisions.flatMap((decision) => decision.reasons))),
+    },
+  };
+}
+
 export const incidentRoutes: AppRoute[] = [
   {
     method: "GET",
     pattern: /^\/incidents$/,
-    handler: async () => {
-      const incidents = await listIncidents(25);
+    handler: async (context) => {
+      const limit = parseBoundedInt(context.url.searchParams.get("limit"), 25, 1, 100);
+      const offset = parseBoundedInt(context.url.searchParams.get("offset"), 0, 0, 10_000);
+      const incidents = await listIncidents(limit + 1, offset);
+      const enrichedIncidents = await Promise.all(incidents.map((incident) => enrichIncident(incident)));
+      const page = paginateOffsetQuery(enrichedIncidents, limit, offset);
 
       return createJsonResponse(200, {
         ok: true,
         data: {
-          incidents,
+          incidents: page.items,
+          pagination: page.pagination,
         },
       });
     },
@@ -43,6 +110,8 @@ export const incidentRoutes: AppRoute[] = [
     pattern: /^\/servers\/[^/]+\/incidents$/,
     handler: async (context) => {
       const serverId = context.url.pathname.split("/")[2];
+      const limit = parseBoundedInt(context.url.searchParams.get("limit"), 20, 1, 100);
+      const offset = parseBoundedInt(context.url.searchParams.get("offset"), 0, 0, 10_000);
 
       if (!serverId) {
         return createJsonResponse(400, {
@@ -55,12 +124,15 @@ export const incidentRoutes: AppRoute[] = [
         });
       }
 
-      const incidents = await listIncidentsByServerId(serverId, 20);
+      const incidents = await listIncidentsByServerId(serverId, limit + 1, offset);
+      const enrichedIncidents = await Promise.all(incidents.map((incident) => enrichIncident(incident)));
+      const page = paginateOffsetQuery(enrichedIncidents, limit, offset);
 
       return createJsonResponse(200, {
         ok: true,
         data: {
-          incidents,
+          incidents: page.items,
+          pagination: page.pagination,
         },
       });
     },
@@ -70,6 +142,8 @@ export const incidentRoutes: AppRoute[] = [
     pattern: /^\/servers\/[^/]+\/remediations$/,
     handler: async (context) => {
       const serverId = context.url.pathname.split("/")[2];
+      const limit = parseBoundedInt(context.url.searchParams.get("limit"), 20, 1, 100);
+      const offset = parseBoundedInt(context.url.searchParams.get("offset"), 0, 0, 10_000);
 
       if (!serverId) {
         return createJsonResponse(400, {
@@ -82,12 +156,14 @@ export const incidentRoutes: AppRoute[] = [
         });
       }
 
-      const runs = await listRemediationRunsByServerId(serverId, 20);
+      const runs = await listRemediationRunsByServerId(serverId, limit + 1, offset);
+      const page = paginateOffsetQuery(runs, limit, offset);
 
       return createJsonResponse(200, {
         ok: true,
         data: {
-          runs,
+          runs: page.items,
+          pagination: page.pagination,
         },
       });
     },
@@ -129,22 +205,20 @@ export const incidentRoutes: AppRoute[] = [
         });
       }
 
-      if (incident.status !== "open") {
-        return createJsonResponse(409, {
+      const action = getRemediationActionByType(parsed.data.actionType);
+
+      if (!action) {
+        return createJsonResponse(400, {
           ok: false,
           error: {
-            code: "INCIDENT_NOT_OPEN",
-            message: "Only open incidents can be remediated",
+            code: "REMEDIATION_NOT_FOUND",
+            message: "Requested remediation action is not allowlisted",
             requestId: context.requestId,
           },
         });
       }
 
-      const allowedActions = getRemediationActionsForCheckType(incident.checkType).map(
-        (action) => action.actionType,
-      );
-
-      if (!allowedActions.includes(parsed.data.actionType)) {
+      if (!getRemediationActionsForCheckType(incident.checkType).some((item) => item.actionType === action.actionType)) {
         return createJsonResponse(400, {
           ok: false,
           error: {
@@ -168,11 +242,28 @@ export const incidentRoutes: AppRoute[] = [
         });
       }
 
+      const decision = evaluateRemediationPolicy({
+        action,
+        incident,
+        server,
+      });
+
+      if (decision.action !== "allow") {
+        return createJsonResponse(409, {
+          ok: false,
+          error: {
+            code: "REMEDIATION_DENIED",
+            message: decision.reasons.join(". "),
+            requestId: context.requestId,
+          },
+        });
+      }
+
       const run = await createRemediationRun({
         incidentId: incident.id,
         serverId: server.id,
-        actionType: parsed.data.actionType,
-        provider: parsed.data.actionType === "provider.reboot" ? "linode" : "ssh",
+        actionType: action.actionType,
+        provider: action.provider,
         request: {
           incidentCheckType: incident.checkType,
         },
@@ -180,7 +271,7 @@ export const incidentRoutes: AppRoute[] = [
 
       try {
         const execution = await executeRemediation({
-          actionType: parsed.data.actionType,
+          actionType: action.actionType,
           incident,
           server,
         });
@@ -199,7 +290,7 @@ export const incidentRoutes: AppRoute[] = [
           targetType: "incident",
           targetId: incident.id,
           metadata: {
-            actionType: parsed.data.actionType,
+            actionType: action.actionType,
             remediationRunId: run.id,
             status: execution.status,
           },
@@ -217,15 +308,27 @@ export const incidentRoutes: AppRoute[] = [
               reason: "awaiting healthy follow-up check",
             },
           });
+          await notifyEvent({
+            eventType: "incident.remediation_pending",
+            subject: `Remediation pending verification for ${server.name}`,
+            bodyText: `Remediation ${action.actionType} succeeded for incident ${incident.id} on ${server.hostname}. A healthy follow-up check is still required before resolution.`,
+          });
+        } else {
+          await notifyEvent({
+            eventType: "incident.remediation.failed",
+            subject: `Remediation failed for ${server.name}`,
+            bodyText: `Remediation ${action.actionType} failed for incident ${incident.id} on ${server.hostname}. Output: ${execution.outputSnippet}`,
+          });
         }
 
         const runs = await listRemediationRunsByServerId(server.id, 20);
         const incidents = await listIncidentsByServerId(server.id, 20);
+        const enrichedIncidents = await Promise.all(incidents.map((item) => enrichIncident(item)));
 
         return createJsonResponse(200, {
           ok: true,
           data: {
-            incidents,
+            incidents: enrichedIncidents,
             runs,
           },
         });
@@ -234,6 +337,11 @@ export const incidentRoutes: AppRoute[] = [
           id: run.id,
           status: "failed",
           outputSnippet: error instanceof Error ? error.message : "Remediation failed",
+        });
+        await notifyEvent({
+          eventType: "incident.remediation.failed",
+          subject: `Remediation failed for ${server.name}`,
+          bodyText: `Remediation ${action.actionType} failed for incident ${incident.id} on ${server.hostname}. Output: ${error instanceof Error ? error.message : "Remediation failed"}`,
         });
 
         return createJsonResponse(500, {
