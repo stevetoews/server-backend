@@ -19,10 +19,65 @@ interface TransportResult {
   transportKind: "smtp" | "simulated";
 }
 
+interface SmtpLikeError {
+  code?: string;
+  response?: string;
+  responseCode?: number;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function isSmtpLikeError(error: unknown): error is SmtpLikeError {
+  return typeof error === "object" && error !== null;
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Notification delivery failed";
+}
+
+function getSmtpResponseText(error: unknown): string | undefined {
+  if (!isSmtpLikeError(error)) {
+    return undefined;
+  }
+
+  if (typeof error.response === "string" && error.response.trim()) {
+    return error.response;
+  }
+
+  if (typeof error.responseCode === "number") {
+    return `SMTP response ${error.responseCode}`;
+  }
+
+  return undefined;
+}
+
+function isRetryableSmtpError(error: unknown): boolean {
+  if (!isSmtpLikeError(error)) {
+    return false;
+  }
+
+  if (error.code === "EAUTH") {
+    return false;
+  }
+
+  if (typeof error.responseCode === "number") {
+    return error.responseCode >= 400 && error.responseCode < 500;
+  }
+
+  return (
+    error.code === "ECONNECTION" ||
+    error.code === "ETIMEDOUT" ||
+    error.code === "ESOCKET" ||
+    error.code === "ECONNRESET" ||
+    error.code === "ECONNREFUSED" ||
+    error.code === "EHOSTUNREACH" ||
+    error.code === "ENETUNREACH" ||
+    error.code === "EAI_AGAIN"
+  );
 }
 
 function getNotificationFromAddress(): string {
@@ -71,7 +126,7 @@ async function sendMailWithRetry(
         transportKind: "smtp",
       };
     } catch (error) {
-      if (attempt === attempts) {
+      if (attempt === attempts || !isRetryableSmtpError(error)) {
         throw error;
       }
 
@@ -80,6 +135,7 @@ async function sendMailWithRetry(
           scope: "notification",
           transport: "smtp",
           attempt,
+          retryable: true,
           retrying: true,
           error: error instanceof Error ? error.message : "SMTP delivery failed",
           to: payload.to,
@@ -164,16 +220,26 @@ async function persistFailedDelivery(input: {
   subject: string;
   targetId: string;
   transportKind?: TransportResult["transportKind"];
+  transportResponse?: string;
 }): Promise<void> {
-  await createNotificationDelivery({
+  const deliveryRecord: Parameters<typeof createNotificationDelivery>[0] = {
     bodyText: input.bodyText,
-    errorMessage: input.error instanceof Error ? input.error.message : "Notification delivery failed",
+    errorMessage: getErrorMessage(input.error),
     eventType: input.eventType,
     status: "failed",
     subject: input.subject,
     targetId: input.targetId,
-    ...(input.transportKind ? { transportKind: input.transportKind } : {}),
-  });
+  };
+
+  if (input.transportKind) {
+    deliveryRecord.transportKind = input.transportKind;
+  }
+
+  if (input.transportResponse) {
+    deliveryRecord.transportResponse = input.transportResponse;
+  }
+
+  await createNotificationDelivery(deliveryRecord);
 }
 
 export async function notifyEvent(input: NotificationEventInput): Promise<void> {
@@ -192,14 +258,21 @@ export async function notifyEvent(input: NotificationEventInput): Promise<void> 
         });
       }
     } catch (error) {
-      await persistFailedDelivery({
+      const transportResponse = getSmtpResponseText(error);
+      const failureRecord: Parameters<typeof persistFailedDelivery>[0] = {
         bodyText: input.bodyText,
         error,
         eventType: input.eventType,
         subject: input.subject,
         targetId: target.id,
         transportKind: env.NOTIFICATION_SMTP_HOST ? "smtp" : "simulated",
-      });
+      };
+
+      if (transportResponse) {
+        failureRecord.transportResponse = transportResponse;
+      }
+
+      await persistFailedDelivery(failureRecord);
     }
   }
 }
@@ -241,14 +314,21 @@ export async function sendTestNotification(targetId: string): Promise<void> {
       });
     }
   } catch (error) {
-    await persistFailedDelivery({
+    const transportResponse = getSmtpResponseText(error);
+    const failureRecord: Parameters<typeof persistFailedDelivery>[0] = {
       bodyText: `This is a simulated test notification for ${target.address}.`,
       error,
       eventType: "notification.test",
       subject: `Test notification for ${target.label}`,
       targetId: target.id,
       transportKind: env.NOTIFICATION_SMTP_HOST ? "smtp" : "simulated",
-    });
+    };
+
+    if (transportResponse) {
+      failureRecord.transportResponse = transportResponse;
+    }
+
+    await persistFailedDelivery(failureRecord);
     throw error;
   }
 }
