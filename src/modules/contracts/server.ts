@@ -32,6 +32,23 @@ export const providerMatchSchema = z.object({
 });
 export type ProviderMatch = z.infer<typeof providerMatchSchema>;
 
+export const linodeSnapshotSchema = z.object({
+  kind: z.literal("linode"),
+  linodeId: z.string(),
+  summary: z.string(),
+  planLabel: z.string(),
+  cpuCores: z.number().int().positive(),
+  ramGb: z.number().nonnegative(),
+  totalStorageGb: z.number().nonnegative(),
+  usedStoragePercent: z.number().min(0).max(100).optional(),
+  publicIpv4: z.array(z.string()),
+  publicIpv6: z.array(z.string()),
+  region: z.string(),
+  tags: z.array(z.string()),
+  createdAt: z.string(),
+});
+export type LinodeSnapshot = z.infer<typeof linodeSnapshotSchema>;
+
 export const sshProbeSchema = z.object({
   latencyMs: z.number(),
   ok: z.boolean(),
@@ -56,6 +73,7 @@ export const serverRecordSchema = serverDraftSchema.extend({
   id: z.string(),
   onboardingStatus: onboardingStatusSchema,
   providerMatch: providerMatchSchema.optional(),
+  providerSnapshot: linodeSnapshotSchema.optional(),
   spinupwpServerId: z.string().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),

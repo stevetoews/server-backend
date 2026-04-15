@@ -8,6 +8,7 @@ import {
   listServers,
   mapSpinupwpServer,
 } from "../db/repositories/servers.js";
+import { getLatestHealthCheckByServerAndType } from "../db/repositories/health-checks.js";
 import { createJsonResponse, createValidationErrorResponse, readJsonBody, type AppRoute } from "../lib/http.js";
 import { writeAuditEvent } from "../modules/audit/logger.js";
 import {
@@ -31,16 +32,61 @@ const spinupwpMappingSchema = z.object({
   spinupwpServerId: z.string().min(1),
 });
 
+function readUsagePercent(rawOutput: Record<string, unknown> | undefined): number | undefined {
+  if (!rawOutput) {
+    return undefined;
+  }
+
+  const usagePercent = rawOutput.usagePercent;
+
+  if (typeof usagePercent === "number") {
+    return usagePercent;
+  }
+
+  const parsed = Number(usagePercent);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+async function enrichServerRecord(server: ServerRecord): Promise<ServerRecord> {
+  if (server.providerMatch?.providerKind !== "linode") {
+    return server;
+  }
+
+  try {
+    const [providerSnapshot, diskCheck] = await Promise.all([
+      new LinodeAdapter().buildSnapshot(server.providerMatch.providerInstanceId),
+      getLatestHealthCheckByServerAndType({
+        serverId: server.id,
+        checkType: "host.disk.root",
+      }),
+    ]);
+
+    return {
+      ...server,
+      providerSnapshot: {
+        ...providerSnapshot,
+        summary: `${providerSnapshot.planLabel} • ${providerSnapshot.cpuCores} CPU core${
+          providerSnapshot.cpuCores === 1 ? "" : "s"
+        } • ${providerSnapshot.ramGb} GB RAM`,
+        usedStoragePercent: readUsagePercent(diskCheck?.rawOutput),
+      },
+    };
+  } catch {
+    return server;
+  }
+}
+
 export const serverRoutes: AppRoute[] = [
   {
     method: "GET",
     pattern: /^\/servers$/,
     handler: async () => {
       const servers = await listServers();
+      const enrichedServers = await Promise.all(servers.map((server) => enrichServerRecord(server)));
 
       return createJsonResponse(200, {
         ok: true,
-        data: servers,
+        data: enrichedServers,
       });
     },
   },
@@ -74,10 +120,12 @@ export const serverRoutes: AppRoute[] = [
         });
       }
 
+      const enrichedServer = await enrichServerRecord(server);
+
       return createJsonResponse(200, {
         ok: true,
         data: {
-          server,
+          server: enrichedServer,
         },
       });
     },

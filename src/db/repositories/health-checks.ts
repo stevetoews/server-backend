@@ -133,3 +133,32 @@ export async function countHealthChecksByServerId(serverId: string): Promise<num
   const row = result.rows[0] as Record<string, unknown> | undefined;
   return row ? Number(row.total ?? 0) : 0;
 }
+
+export async function getLatestHealthCheckByServerAndType(input: {
+  serverId: string;
+  checkType: string;
+}): Promise<HealthCheckRecord | null> {
+  const db = getDbClient();
+  const result = await db.execute({
+    sql: `
+      SELECT
+        id,
+        server_id,
+        check_type,
+        status,
+        latency_ms,
+        summary,
+        raw_output_json,
+        created_at
+      FROM health_checks
+      WHERE server_id = ?
+        AND check_type = ?
+      ORDER BY created_at DESC
+      LIMIT 1
+    `,
+    args: [input.serverId, input.checkType],
+  });
+
+  const row = result.rows[0];
+  return row ? mapHealthCheckRow(row as Record<string, unknown>) : null;
+}
