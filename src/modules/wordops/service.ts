@@ -44,6 +44,13 @@ export interface WordopsSiteCreateInput {
   vhostOnly?: boolean;
 }
 
+export interface WordopsSiteUpdateInput {
+  cacheProfile?: "wp" | "wpfc" | "wpredis" | "wpsc" | "wprocket" | "wpce";
+  hsts?: boolean;
+  letsEncrypt?: boolean;
+  phpVersion?: "8.2" | "8.3";
+}
+
 export interface WordopsStackInstallInput {
   profile: "web";
 }
@@ -158,6 +165,10 @@ function inferAppType(value: string): string {
 
   if (normalized.includes("mysql")) {
     return "mysql";
+  }
+
+  if (!value.trim() || normalized === "unknown") {
+    return "wordpress";
   }
 
   return value.trim() || "unknown";
@@ -352,6 +363,48 @@ export async function createWordopsSite(
 
   if (input.adminEmail) {
     commandParts.push(`--email=${shellEscape(input.adminEmail)}`);
+  }
+
+  return executeWordopsMutation(serverId, commandParts);
+}
+
+export async function updateWordopsSite(
+  serverId: string,
+  domain: string,
+  input: WordopsSiteUpdateInput,
+): Promise<WordopsMutationResult> {
+  const commandParts = ["wo", "site", "update", shellEscape(domain)];
+
+  if (input.cacheProfile) {
+    commandParts.push(`--${input.cacheProfile}`);
+  }
+
+  if (input.phpVersion === "8.2") {
+    commandParts.push("--php82");
+  }
+
+  if (input.phpVersion === "8.3") {
+    commandParts.push("--php83");
+  }
+
+  if (input.letsEncrypt === true) {
+    commandParts.push("--letsencrypt");
+  }
+
+  if (input.letsEncrypt === false) {
+    commandParts.push("--letsencrypt=off");
+  }
+
+  if (input.hsts === true) {
+    commandParts.push("--hsts");
+  }
+
+  if (input.hsts === false) {
+    commandParts.push("--hsts=off");
+  }
+
+  if (commandParts.length === 4) {
+    throw new Error("At least one WordOps site update action is required");
   }
 
   return executeWordopsMutation(serverId, commandParts);

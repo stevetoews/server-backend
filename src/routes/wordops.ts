@@ -11,6 +11,7 @@ import {
   enableWordopsSite,
   installWordopsStack,
   inspectServerWordops,
+  updateWordopsSite,
 } from "../modules/wordops/service.js";
 
 const createSiteSchema = z
@@ -38,6 +39,36 @@ const createSiteSchema = z
 const stackInstallSchema = z.object({
   profile: z.enum(["web"]).default("web"),
 });
+
+const updateSiteSchema = z
+  .object({
+    cacheProfile: z.enum(["wp", "wpfc", "wpredis", "wpsc", "wprocket", "wpce"]).optional(),
+    hsts: z.boolean().optional(),
+    letsEncrypt: z.boolean().optional(),
+    phpVersion: z.enum(["8.2", "8.3"]).optional(),
+  })
+  .superRefine((value, context) => {
+    if (
+      value.cacheProfile === undefined &&
+      value.hsts === undefined &&
+      value.letsEncrypt === undefined &&
+      value.phpVersion === undefined
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "At least one site update action is required",
+        path: [],
+      });
+    }
+
+    if (value.letsEncrypt === false && value.hsts === true) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "HSTS cannot be enabled while disabling Let's Encrypt",
+        path: ["hsts"],
+      });
+    }
+  });
 
 async function loadServerOr404(serverId: string, requestId: string) {
   const server = await getServerById(serverId);
@@ -404,6 +435,75 @@ export const wordopsRoutes: AppRoute[] = [
         metadata: {
           output: mutation.output,
           serverId,
+        },
+      });
+
+      return createJsonResponse(200, {
+        ok: true,
+        data: {
+          execution: mutation,
+          overview: syncResult.overview,
+          server,
+          sites: syncResult.sites,
+        },
+      });
+    },
+  },
+  {
+    method: "POST",
+    pattern: /^\/servers\/[^/]+\/sites\/[^/]+\/update$/,
+    handler: async (context) => {
+      const [, , serverId, , domain] = context.url.pathname.split("/");
+
+      if (!serverId || !domain) {
+        return invalidSitePathResponse(context.requestId);
+      }
+
+      const server = await loadServerOr404(serverId, context.requestId);
+
+      if ("status" in server) {
+        return server;
+      }
+
+      const rawBody = await readJsonBody<unknown>(context.req);
+      const parsed = updateSiteSchema.safeParse(rawBody);
+
+      if (!parsed.success) {
+        return createValidationErrorResponse(context.requestId, parsed.error.flatten());
+      }
+
+      const decodedDomain = decodeURIComponent(domain);
+      const updateInput = {
+        ...(parsed.data.cacheProfile ? { cacheProfile: parsed.data.cacheProfile } : {}),
+        ...(parsed.data.hsts !== undefined ? { hsts: parsed.data.hsts } : {}),
+        ...(parsed.data.letsEncrypt !== undefined ? { letsEncrypt: parsed.data.letsEncrypt } : {}),
+        ...(parsed.data.phpVersion ? { phpVersion: parsed.data.phpVersion } : {}),
+      } as const;
+      const mutation = await updateWordopsSite(serverId, decodedDomain, updateInput);
+
+      if (mutation.status === "failed") {
+        return createJsonResponse(502, {
+          ok: false,
+          error: {
+            code: "WORDOPS_SITE_UPDATE_FAILED",
+            message: mutation.output,
+            requestId: context.requestId,
+          },
+        });
+      }
+
+      const syncResult = await syncWordopsSitesForServer(serverId);
+
+      await writeAuditEvent({
+        actorType: "user",
+        actorId: "bootstrap-admin",
+        eventType: "site.wordops.updated",
+        targetType: "site",
+        targetId: decodedDomain,
+        metadata: {
+          output: mutation.output,
+          serverId,
+          updates: parsed.data,
         },
       });
 
