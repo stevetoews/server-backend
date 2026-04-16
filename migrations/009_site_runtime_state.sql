@@ -1,0 +1,2 @@
+ALTER TABLE sites ADD COLUMN ssl_enabled INTEGER;
+ALTER TABLE sites ADD COLUMN site_enabled INTEGER;

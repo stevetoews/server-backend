@@ -8,7 +8,9 @@ export interface WordopsSiteSummary {
   cacheType?: string;
   domain: string;
   phpVersion?: string;
+  siteEnabled?: boolean;
   sitePath: string;
+  sslEnabled?: boolean;
 }
 
 export interface WordopsOverview {
@@ -118,30 +120,56 @@ function inferCacheType(value: string): string | undefined {
   const normalized = value.toLowerCase();
 
   if (normalized.includes("wpredis") || normalized.includes("redis")) {
-    return "redis";
+    return "wpredis";
   }
 
-  if (normalized.includes("wpfc") || normalized.includes("fastcgi")) {
-    return "fastcgi_cache";
+  if (normalized.includes("wpfc") || normalized.includes("fastcgi") || normalized.includes("wp fc")) {
+    return "wpfc";
   }
 
-  if (normalized.includes("wpsc") || normalized.includes("super-cache")) {
-    return "wp_super_cache";
+  if (normalized.includes("wpsc") || normalized.includes("super-cache") || normalized.includes("super cache")) {
+    return "wpsc";
   }
 
   if (normalized.includes("wprocket") || normalized.includes("rocket")) {
-    return "wp_rocket";
+    return "wprocket";
   }
 
   if (normalized.includes("wpce") || normalized.includes("cache-enabler")) {
-    return "cache_enabler";
+    return "wpce";
   }
 
-  if (normalized.includes("wp")) {
-    return "wordpress";
+  if (normalized.includes("wp basic") || normalized.includes("wordpress") || normalized.includes("wp")) {
+    return "wp";
   }
 
   return undefined;
+}
+
+function parseWordopsNginxConfiguration(value: string): Pick<WordopsSiteSummary, "appType" | "cacheType" | "siteEnabled"> {
+  const normalized = value.toLowerCase();
+  const siteEnabled = /\(enabled\)/i.test(value)
+    ? true
+    : /\(disabled\)/i.test(value)
+      ? false
+      : undefined;
+  const cleanedValue = value.replace(/\((enabled|disabled)\)/gi, "").trim();
+  const cleanedNormalized = normalized.replace(/\((enabled|disabled)\)/gi, "").trim();
+
+  const cacheType =
+    cleanedNormalized.includes("wp basic") ? "wp" :
+    cleanedNormalized.includes("wpfc") || cleanedNormalized.includes("wp fc") || cleanedNormalized.includes("fastcgi") ? "wpfc" :
+    cleanedNormalized.includes("wpredis") || cleanedNormalized.includes("wp redis") || cleanedNormalized.includes("redis") ? "wpredis" :
+    cleanedNormalized.includes("wpsc") || cleanedNormalized.includes("super-cache") || cleanedNormalized.includes("super cache") ? "wpsc" :
+    cleanedNormalized.includes("wprocket") || cleanedNormalized.includes("wp rocket") || cleanedNormalized.includes("rocket") ? "wprocket" :
+    cleanedNormalized.includes("wpce") || cleanedNormalized.includes("cache-enabler") || cleanedNormalized.includes("cache enabler") ? "wpce" :
+    inferCacheType(cleanedValue);
+
+  return {
+    appType: inferAppType(cleanedValue),
+    ...(cacheType ? { cacheType } : {}),
+    ...(siteEnabled !== undefined ? { siteEnabled } : {}),
+  };
 }
 
 function inferAppType(value: string): string {
@@ -241,6 +269,71 @@ function parseWordopsSites(output: string): WordopsSiteSummary[] {
   return siteRows;
 }
 
+function parseWordopsSiteInfo(output: string, domain: string): Partial<WordopsSiteSummary> {
+  const normalizedOutput = output.replace(/\u001b\[[0-9;]*m/g, "");
+  const lines = normalizedOutput
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  let phpVersion: string | undefined;
+  let sitePath: string | undefined;
+  let sslEnabled: boolean | undefined;
+  let siteEnabled: boolean | undefined;
+  let appType: string | undefined;
+  let cacheType: string | undefined;
+
+  for (const line of lines) {
+    const parts = line.split(/\t+/).map((part) => part.trim()).filter(Boolean);
+
+    if (parts.length < 2) {
+      continue;
+    }
+
+    const key = (parts[0] ?? "").toLowerCase();
+    const value = parts.slice(1).join(" ");
+
+    if (key === "php version") {
+      const match = value.match(/([0-9]+\.[0-9]+)/);
+      if (match?.[1]) {
+        phpVersion = match[1];
+      }
+      continue;
+    }
+
+    if (key === "ssl") {
+      if (/enabled/i.test(value)) {
+        sslEnabled = true;
+      }
+      if (/disabled/i.test(value)) {
+        sslEnabled = false;
+      }
+      continue;
+    }
+
+    if (key === "webroot") {
+      sitePath = value;
+      continue;
+    }
+
+    if (key === "nginx configuration") {
+      const parsedConfiguration = parseWordopsNginxConfiguration(value);
+      siteEnabled = parsedConfiguration.siteEnabled;
+      appType = parsedConfiguration.appType;
+      cacheType = parsedConfiguration.cacheType;
+    }
+  }
+
+  return {
+    domain,
+    ...(appType ? { appType } : {}),
+    ...(cacheType ? { cacheType } : {}),
+    ...(phpVersion ? { phpVersion } : {}),
+    ...(sitePath ? { sitePath } : {}),
+    ...(siteEnabled !== undefined ? { siteEnabled } : {}),
+    ...(sslEnabled !== undefined ? { sslEnabled } : {}),
+  };
+}
+
 async function executeWordopsCommand(server: ServerRuntimeRecord, command: string) {
   return executeSshCommand({
     command,
@@ -309,12 +402,30 @@ export async function inspectServerWordops(serverId: string): Promise<WordopsOve
         : "degraded";
 
   const version = parseWordopsVersion(infoOutput);
+  const basicSites = parseWordopsSites(siteListOutput);
+  const detailedSites = await Promise.all(
+    basicSites.map(async (site) => {
+      const siteInfoResult = await executeWordopsCommand(
+        server,
+        `sh -lc ${shellEscape(`wo site info ${site.domain} 2>&1`)}`,
+      );
+      const siteInfoOutput = [siteInfoResult.stdout, siteInfoResult.stderr].filter(Boolean).join("\n").trim();
+      const parsed = parseWordopsSiteInfo(siteInfoOutput, site.domain);
+
+      return {
+        ...site,
+        ...parsed,
+        appType: parsed.appType ?? site.appType,
+        sitePath: parsed.sitePath ?? site.sitePath,
+      };
+    }),
+  );
 
   return {
     infoOutput,
     installed: true,
     siteListOutput,
-    sites: parseWordopsSites(siteListOutput),
+    sites: detailedSites,
     stack,
     status,
     ...(version ? { version } : {}),
