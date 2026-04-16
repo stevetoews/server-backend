@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+  closeIncident,
   type IncidentRecord,
   countIncidents,
   countIncidentsByServerId,
@@ -244,6 +245,69 @@ export const incidentRoutes: AppRoute[] = [
         data: {
           runs: page.items,
           pagination: page.pagination,
+        },
+      });
+    },
+  },
+  {
+    method: "POST",
+    pattern: /^\/incidents\/[^/]+\/close$/,
+    handler: async (context) => {
+      const incidentId = context.url.pathname.split("/")[2];
+
+      if (!incidentId) {
+        return createJsonResponse(400, {
+          ok: false,
+          error: {
+            code: "INVALID_INCIDENT_ID",
+            message: "Incident id is required in the request path",
+            requestId: context.requestId,
+          },
+        });
+      }
+
+      const incident = await getIncidentById(incidentId);
+
+      if (!incident) {
+        return createJsonResponse(404, {
+          ok: false,
+          error: {
+            code: "INCIDENT_NOT_FOUND",
+            message: "Incident record was not found",
+            requestId: context.requestId,
+          },
+        });
+      }
+
+      if (incident.status !== "resolved") {
+        return createJsonResponse(409, {
+          ok: false,
+          error: {
+            code: "INCIDENT_CLOSE_DENIED",
+            message: "Only resolved incidents can be closed",
+            requestId: context.requestId,
+          },
+        });
+      }
+
+      await closeIncident(incident.id);
+      await writeAuditEvent({
+        actorType: "user",
+        actorId: "bootstrap-admin",
+        eventType: "incident.closed",
+        targetType: "incident",
+        targetId: incident.id,
+        metadata: {
+          previousStatus: "resolved",
+        },
+      });
+
+      const closedIncident = await getIncidentById(incident.id);
+
+      return createJsonResponse(200, {
+        ok: true,
+        data: {
+          incident: closedIncident,
         },
       });
     },

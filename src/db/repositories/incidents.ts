@@ -11,7 +11,7 @@ export interface IncidentRecord {
   resolvedAt?: string;
   serverId: string;
   severity: "warning" | "critical";
-  status: "open" | "remediation_pending" | "resolved";
+  status: "open" | "remediation_pending" | "resolved" | "closed";
   summary?: string;
   title: string;
 }
@@ -141,6 +141,18 @@ export async function markIncidentRemediationPending(id: string): Promise<void> 
   });
 }
 
+export async function closeIncident(id: string): Promise<void> {
+  const db = getDbClient();
+  await db.execute({
+    sql: `
+      UPDATE incidents
+      SET status = 'closed'
+      WHERE id = ?
+    `,
+    args: [id],
+  });
+}
+
 export async function listIncidents(
   limit = 20,
   offset = 0,
@@ -150,6 +162,7 @@ export async function listIncidents(
     sql: `
       SELECT id, server_id, severity, status, title, summary, opened_at, resolved_at, check_type
       FROM incidents
+      WHERE status != 'closed'
       ORDER BY opened_at DESC
       LIMIT ?
       OFFSET ?
@@ -165,6 +178,7 @@ export async function countIncidents(): Promise<number> {
   const result = await db.execute(`
     SELECT COUNT(*) AS total
     FROM incidents
+    WHERE status != 'closed'
   `);
 
   const row = result.rows[0] as Record<string, unknown> | undefined;
@@ -182,6 +196,7 @@ export async function listIncidentsByServerId(
       SELECT id, server_id, severity, status, title, summary, opened_at, resolved_at, check_type
       FROM incidents
       WHERE server_id = ?
+        AND status != 'closed'
       ORDER BY opened_at DESC
       LIMIT ?
       OFFSET ?
@@ -199,6 +214,7 @@ export async function countIncidentsByServerId(serverId: string): Promise<number
       SELECT COUNT(*) AS total
       FROM incidents
       WHERE server_id = ?
+        AND status != 'closed'
     `,
     args: [serverId],
   });
