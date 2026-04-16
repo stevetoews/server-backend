@@ -321,11 +321,22 @@ export async function runChecksForAllActiveServers(): Promise<CheckRunSummary[]>
   const summary: CheckRunSummary[] = [];
 
   for (const server of servers) {
-    const created = await runChecksForServer(server);
-    summary.push({
-      serverId: server.id,
-      checksCreated: created.length,
-    });
+    try {
+      const created = await runChecksForServer(server);
+      summary.push({
+        serverId: server.id,
+        checksCreated: created.length,
+      });
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          ok: false,
+          event: "checks.server.failed",
+          serverId: server.id,
+          error: error instanceof Error ? error.message : "Check run failed for server",
+        }),
+      );
+    }
   }
 
   return summary;

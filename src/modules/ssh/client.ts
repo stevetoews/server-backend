@@ -77,23 +77,44 @@ export async function executeSshCommand(input: {
 
   try {
     return await new Promise<SshCommandResult>((resolve, reject) => {
+      let settled = false;
+      let streamRef: ClientChannel | null = null;
       const timeout = setTimeout(() => {
-        client.end();
-        reject(new Error(`SSH command timed out after ${env.SSH_COMMAND_TIMEOUT_MS}ms`));
-      }, env.SSH_COMMAND_TIMEOUT_MS);
-
-      client.exec(input.command, (error: Error | undefined, stream: ClientChannel) => {
-        if (error) {
-          clearTimeout(timeout);
-          client.end();
-          reject(error);
+        if (settled) {
           return;
         }
 
+        settled = true;
+        streamRef?.close();
+        client.destroy();
+        reject(new Error(`SSH command timed out after ${env.SSH_COMMAND_TIMEOUT_MS}ms`));
+      }, env.SSH_COMMAND_TIMEOUT_MS);
+
+      const fail = (error: Error) => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        clearTimeout(timeout);
+        client.destroy();
+        reject(error);
+      };
+
+      client.exec(input.command, (error: Error | undefined, stream: ClientChannel) => {
+        if (error) {
+          fail(error);
+          return;
+        }
+
+        streamRef = stream;
         let stdout = "";
         let stderr = "";
         let exitCode: number | null = null;
         let signal: string | undefined;
+
+        client.once("error", fail);
+        stream.once("error", fail);
 
         stream.on("data", (chunk: Buffer | string) => {
           stdout += chunk.toString();
@@ -109,6 +130,11 @@ export async function executeSshCommand(input: {
         });
 
         stream.on("close", () => {
+          if (settled) {
+            return;
+          }
+
+          settled = true;
           clearTimeout(timeout);
           client.end();
           resolve({
